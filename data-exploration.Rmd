@@ -1,0 +1,176 @@
+---
+title: "data-exploration"
+author: "Greg Lenane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, 
+                      message = FALSE, tidy = TRUE,
+                      fig.width = 15, fig.height = 8)
+```
+
+```{r libraries, include=FALSE}
+library(knitr)
+library(odbc)
+library(DBI)
+library(glue)
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+library(ggplot2)
+library(tidytext)
+library(kableExtra)
+```
+
+# Read Data
+```{r read-data}
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+
+# read in data
+ip_query <- glue(
+  "select * from MSX_IP_OUTPUT
+   where ADMIT_DT_SRC >= DATE '2024-01-01' AND
+         ADMIT_DT_SRC <= DATE '2024-12-31'"
+)
+
+# create, execute and clear result for bislr payroll query
+MSX_IP_OUTPUT_query <- dbSendQuery(con_prod, ip_query)
+MSX_IP_OUTPUT <- dbFetch(MSX_IP_OUTPUT_query)
+dbClearResult(MSX_IP_OUTPUT_query)
+```
+# Data Exploration
+### Check for unique encounters
+```{r unique encounters}
+# check if each patient encounter is unique
+unique_encounters <- if (length(unique(MSX_IP_OUTPUT$ENCOUNTER_NO)) == nrow(MSX_IP_OUTPUT)) {
+  print("All encounters are unique")
+} else {
+  print("There are duplicate encounters")
+}
+```
+
+### Encounters by Facility
+```{r encounters by facility}
+# visualize encounters by facility
+ggplot(MSX_IP_OUTPUT, aes(x = FACILITY_MSX, fill = YEARMO_MSX)) +
+  geom_bar(position = "dodge", color = "black", size = 0.2)
+```
+
+### DRG by Facility
+```{r blank DRG}
+check <- nrow(MSX_IP_OUTPUT %>% filter(is.na(MSDRG_CD_SRC)))
+glue("There are {check} encounters ({round(check/nrow(MSX_IP_OUTPUT)*100, digits = 2)}%) without a DRG")
+```
+
+```{r DRG by facility, fig.height=15}
+# visualize the top 20 occurring MSDRG codes
+DRG_20 <- MSX_IP_OUTPUT %>%
+  count(FACILITY_MSX, MSDRG_CD_SRC, sort = TRUE) %>%
+  group_by(FACILITY_MSX) %>%
+  slice_max(order_by = n, n = 20) %>%
+  ungroup()
+# reorder factor levels so bars are in descending order
+DRG_20 <- DRG_20 %>%
+  mutate(MSDRG_CD_SRC_reorder = reorder_within(MSDRG_CD_SRC, n, FACILITY_MSX))
+
+p <- ggplot(DRG_20, aes(x = MSDRG_CD_SRC_reorder, y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black", size = 0.2) +
+  coord_flip() +
+  facet_wrap(~ FACILITY_MSX, scales = "free") +  
+  scale_x_reordered() +
+  theme_minimal() +
+  labs(
+    title = "Top 20 MSDRG_CD_SRC Codes per Facility",
+    x = "MSDRG Code",
+    y = "Count"
+  )
+
+print(p)
+```
+
+```{r DRG table, echo=FALSE}
+t <- MSX_IP_OUTPUT %>%
+  select(MSDRG_CD_SRC, MSDRG_DESC_MSX) %>%
+  distinct() %>%
+  filter(MSDRG_CD_SRC %in% DRG_20$MSDRG_CD_SRC) %>%
+  arrange(MSDRG_CD_SRC)
+
+t %>%
+  kbl(caption = "MSDRG Codes and Descriptions Shown in the Plot") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(height = "300px")
+```
+
+### Service Line
+```{r service line, fig.height=15}
+# visualize the top 20 occurring MSDRG codes
+SERVICE_20 <- MSX_IP_OUTPUT %>%
+  count(FACILITY_MSX, SERVICE_DESC_MSX, sort = TRUE) %>%
+  group_by(FACILITY_MSX) %>%
+  slice_max(order_by = n, n = 20) %>%
+  ungroup()
+
+# reorder factor levels so bars are in descending order
+SERVICE_20 <- SERVICE_20 %>%
+  mutate(SERVICE_DESC_MSX_reorder = reorder_within(SERVICE_DESC_MSX, n, FACILITY_MSX))
+
+p <- ggplot(SERVICE_20, aes(x = SERVICE_DESC_MSX_reorder, y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black", size = 0.2) +
+  coord_flip() +
+  facet_wrap(~ FACILITY_MSX, scales = "free") +  
+  scale_x_reordered() +
+  theme_minimal() +
+  labs(
+    title = "Top 20 Service Lines per Facility",
+    x = "Service Line",
+    y = "Count"
+  )
+
+print(p)
+```
+
+```{r vascular scenario}
+current <- MSX_IP_OUTPUT %>%
+  select(FACILITY_MSX, SERVICE_DESC_MSX) %>%
+  filter(FACILITY_MSX %in% c("MSH", "STL"),
+         SERVICE_DESC_MSX %in% c("VASCULAR SURGERY", "CARDIOLOGY"))%>%
+  mutate(STATE = "CURRENT")
+
+scenario <- current %>%
+  mutate(
+    FACILITY_MSX = case_when(
+      SERVICE_DESC_MSX == 'CARDIOLOGY' ~ "MSH",
+      SERVICE_DESC_MSX == 'VASCULAR SURGERY' ~ "STL"),
+    STATE = "FUTURE") 
+
+scenario <- rbind(current, scenario) %>%
+  group_by(FACILITY_MSX, SERVICE_DESC_MSX, STATE) %>%
+  summarise(Count = n())
+
+p <- ggplot(scenario, aes(x = STATE, y = Count, fill = SERVICE_DESC_MSX)) +  
+  geom_bar(stat = "identity", position = "stack", color = "black", size = 0.2) +
+  geom_text(
+    aes(label = Count),
+    position = position_stack(vjust = 0.5),
+    size = 2.5,  # adjust label size as needed
+    color = "black") +
+  facet_wrap(~ FACILITY_MSX, scales = "free") +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "grey40", fill = NA, linewidth =  0.8),
+    strip.background = element_rect(fill = "grey90", color = "grey40", linewidth = 0.8),
+    strip.text = element_text(face = "bold")
+  ) +
+  labs(
+    title = "Current vs Future State Encounters by Facility",
+    x = "State",
+    y = "Encounter Count",
+    fill = "Service Line"
+  )
+
+print(p)
+```
+

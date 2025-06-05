@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE,
 ```
 
 ```{r libraries, include=FALSE}
+library(formatR)
 library(knitr)
 library(odbc)
 library(DBI)
@@ -28,6 +29,8 @@ library(kableExtra)
 ```{r read-data}
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+# capacity modeling path
+cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
 
 # read in data
 ip_query <- glue(
@@ -40,23 +43,55 @@ ip_query <- glue(
 MSX_IP_OUTPUT_query <- dbSendQuery(con_prod, ip_query)
 MSX_IP_OUTPUT <- dbFetch(MSX_IP_OUTPUT_query)
 dbClearResult(MSX_IP_OUTPUT_query)
+
+# clean facility display
+MSX_IP_OUTPUT <- MSX_IP_OUTPUT %>%
+  mutate(
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == 'STL' ~ 'MSM',
+      FACILITY_MSX == 'RVT' ~ 'MSW',
+      FACILITY_MSX == 'BIB' ~ 'MSB',
+      FACILITY_MSX == 'BIP' ~ 'MSBI',
+      TRUE ~ FACILITY_MSX))
+
+# read in tableau encounter data
+tableau <- read.csv(file = paste0(cap_dir, "Tableau Data/Detail_Full Data_data.csv")) %>%
+  mutate(Patient.Encounter = as.character(Patient.Encounter))
 ```
 # Data Exploration
-### Check for unique encounters
+### Check for unique encounters in MSX_IP_OUTPUT
 ```{r unique encounters}
 # check if each patient encounter is unique
-unique_encounters <- if (length(unique(MSX_IP_OUTPUT$ENCOUNTER_NO)) == nrow(MSX_IP_OUTPUT)) {
-  print("All encounters are unique")
+if (length(unique(MSX_IP_OUTPUT$ENCOUNTER_NO)) == nrow(MSX_IP_OUTPUT)) {
+  print("All encounters are unique in MSX_IP_OUTPUT")
 } else {
-  print("There are duplicate encounters")
+  print("There are duplicate encounters in MSX_IP_OUTPUT")
 }
 ```
+
+```{r encounter comparison}
+# remove blank enounters (empty beds) from tableau
+tableau_encounters <- tableau %>%
+  filter(!is.na(Patient.Encounter))
+
+# check encounters in MSX_IP_OUTPUT (EPIC_CSN) exist in tableau data (Patient.Encounter)
+MSX_tableau <- MSX_IP_OUTPUT %>%
+  filter(EPIC_CSN %in% tableau$Patient.Encounter,
+         !is.na(EPIC_CSN))
+glue("There are {nrow(MSX_tableau)} patient encounters in both MSX and Tableau")
+
+# check for encounters in MSX and not in tableau
+MSX_NOT_tableau <- MSX_IP_OUTPUT %>%
+  filter(!(EPIC_CSN %in% tableau$Patient.Encounter))
+glue("There are {nrow(MSX_NOT_tableau)} patient encounters in MSX and not in Tableau")
+```
+
 
 ### Encounters by Facility
 ```{r encounters by facility}
 # visualize encounters by facility
 ggplot(MSX_IP_OUTPUT, aes(x = FACILITY_MSX, fill = YEARMO_MSX)) +
-  geom_bar(position = "dodge", color = "black", size = 0.2)
+  geom_bar(position = "dodge", color = "black", linewidth = 0.2)
 ```
 
 ### DRG by Facility
@@ -135,7 +170,7 @@ print(p)
 ```{r vascular scenario}
 current <- MSX_IP_OUTPUT %>%
   select(FACILITY_MSX, SERVICE_DESC_MSX) %>%
-  filter(FACILITY_MSX %in% c("MSH", "STL"),
+  filter(FACILITY_MSX %in% c("MSH", "MSM"),
          SERVICE_DESC_MSX %in% c("VASCULAR SURGERY", "CARDIOLOGY"))%>%
   mutate(STATE = "CURRENT")
 
@@ -143,7 +178,7 @@ scenario <- current %>%
   mutate(
     FACILITY_MSX = case_when(
       SERVICE_DESC_MSX == 'CARDIOLOGY' ~ "MSH",
-      SERVICE_DESC_MSX == 'VASCULAR SURGERY' ~ "STL"),
+      SERVICE_DESC_MSX == 'VASCULAR SURGERY' ~ "MSM"),
     STATE = "FUTURE") 
 
 scenario <- rbind(current, scenario) %>%

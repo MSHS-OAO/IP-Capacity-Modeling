@@ -52,14 +52,15 @@ MSX_IP_OUTPUT <- MSX_IP_OUTPUT %>%
       FACILITY_MSX == 'RVT' ~ 'MSW',
       FACILITY_MSX == 'BIB' ~ 'MSB',
       FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX))
+      TRUE ~ FACILITY_MSX),
+    EPIC_CSN = as.character(EPIC_CSN))
 
 # read in tableau encounter data
 tableau <- read.csv(file = paste0(cap_dir, "Tableau Data/Detail_Full Data_data.csv")) %>%
   mutate(Patient.Encounter = as.character(Patient.Encounter))
 ```
-# Data Exploration
-### Check for unique encounters in MSX_IP_OUTPUT
+
+# MSX Exploration
 ```{r unique encounters}
 # check if each patient encounter is unique
 if (length(unique(MSX_IP_OUTPUT$ENCOUNTER_NO)) == nrow(MSX_IP_OUTPUT)) {
@@ -68,24 +69,6 @@ if (length(unique(MSX_IP_OUTPUT$ENCOUNTER_NO)) == nrow(MSX_IP_OUTPUT)) {
   print("There are duplicate encounters in MSX_IP_OUTPUT")
 }
 ```
-
-```{r encounter comparison}
-# remove blank enounters (empty beds) from tableau
-tableau_encounters <- tableau %>%
-  filter(!is.na(Patient.Encounter))
-
-# check encounters in MSX_IP_OUTPUT (EPIC_CSN) exist in tableau data (Patient.Encounter)
-MSX_tableau <- MSX_IP_OUTPUT %>%
-  filter(EPIC_CSN %in% tableau$Patient.Encounter,
-         !is.na(EPIC_CSN))
-glue("There are {nrow(MSX_tableau)} patient encounters in both MSX and Tableau")
-
-# check for encounters in MSX and not in tableau
-MSX_NOT_tableau <- MSX_IP_OUTPUT %>%
-  filter(!(EPIC_CSN %in% tableau$Patient.Encounter))
-glue("There are {nrow(MSX_NOT_tableau)} patient encounters in MSX and not in Tableau")
-```
-
 
 ### Encounters by Facility
 ```{r encounters by facility}
@@ -207,5 +190,86 @@ p <- ggplot(scenario, aes(x = STATE, y = Count, fill = SERVICE_DESC_MSX)) +
   )
 
 print(p)
+```
+
+# MSX and Tableau Comparison
+```{r encounter comparison}
+# remove na enounters (empty beds) from tableau
+tableau_encounters <- tableau %>%
+  filter(!is.na(Patient.Encounter)) %>%
+  select(Patient.Encounter) %>%
+  distinct()
+# remove na epic ids from MSX
+MSX_encounters <- MSX_IP_OUTPUT %>%
+  filter(!is.na(EPIC_CSN)) %>%
+  select(EPIC_CSN) %>%
+  distinct()
+
+# MSX and Tableau
+MSX_tableau <- MSX_encounters %>%
+  filter(EPIC_CSN %in% tableau_encounters$Patient.Encounter)
+glue("There are {nrow(MSX_tableau)}({round(nrow(MSX_tableau)/nrow(MSX_encounters)*100,2)}%) patient encounters in both MSX and Tableau")
+
+# MSX not Tableau
+MSX_NOT_tableau <- MSX_encounters %>%
+  filter(!(EPIC_CSN %in% tableau_encounters$Patient.Encounter))
+glue("There are {nrow(MSX_NOT_tableau)}({round(nrow(MSX_NOT_tableau)/nrow(MSX_encounters)*100,2)}%)patient encounters in MSX and not in Tableau")
+
+# Tableau and MSX
+Tableau_MSX <- tableau_encounters %>%
+  filter((Patient.Encounter %in% MSX_encounters$EPIC_CSN))
+glue("There are {nrow(Tableau_MSX)}({round(nrow(Tableau_MSX)/nrow(tableau_encounters)*100,2)}%) patient encounters in both Tableau and MSX")
+
+# Tableau and MSX
+Tableau_NOT_MSX <- tableau_encounters %>%
+  filter(!(Patient.Encounter %in% MSX_encounters$EPIC_CSN))
+glue("There are {nrow(Tableau_NOT_MSX)}({round(nrow(Tableau_NOT_MSX)/nrow(tableau_encounters)*100,2)}%) patient encounters in Tableau and not in MSX")
+```
+
+# 2024 Vascular/Cardiology Test
+```{r scenario}
+###
+### assumptions:
+### 2025-06-11: we will filter down the tableau and MSX data sets to only include
+### the encounters that are shared between the two data sets. The final model must look at all encounters.
+### More information is needed to understand why an encounter would not be present in both tables
+### 
+### another issue with EPIC_CSN is that there are duplicate values in this column
+### meaning that a single epic encunter can have multiple patient encounters?????
+### really need to see if there is a way to get patient encounter pulled into Juliet's data
+###
+### There are also NA EPIC_CSN values in MSX. How is that possible? In tableau it is understood that
+### this is due to an empty bed so there is no patient encounter value. But in MSX it is not clear
+
+# get the encounters that are present in both tableau and MSX
+encounters <- intersect(MSX_encounters$EPIC_CSN, tableau_encounters$Patient.Encounter)
+
+# baseline data without operational movements
+baseline_MSX <- MSX_IP_OUTPUT %>%
+  select(EPIC_CSN, FACILITY_MSX, SERVICE_DESC_MSX) %>%
+  filter(EPIC_CSN %in% encounters) %>%
+  distinct()
+
+#scenario data where cardiology is moved to MSH and Vascular is moved to MSM
+scenario_MSX <- baseline_MSX %>%
+  mutate(
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == 'MSM' & SERVICE_DESC_MSX == 'CARDIOLOGY' ~ "MSH",
+      FACILITY_MSX == 'MSH' & SERVICE_DESC_MSX == 'VASCULAR SURGERY' ~ "MSM",
+      TRUE ~ FACILITY_MSX)) %>%
+  select(EPIC_CSN, FACILITY_MSX, SERVICE_DESC_MSX) %>%
+  filter(EPIC_CSN %in% encounters) %>%
+  distinct()
+
+# read in 2024 tableau data for IP capacity
+tableau_encounters <- tableau %>%
+  filter(Patient.Encounter %in% encounters)
+
+# join baseline and scenario data into tableau
+baseline <- tableau_encounters %>%
+  left_join(baseline_MSX, by = c("Patient.Encounter" = "EPIC_CSN"))
+scenario <- tableau_encounters %>%
+  left_join(scenario_MSX, by = c("Patient.Encounter" = "EPIC_CSN"))
+
 ```
 

@@ -124,7 +124,16 @@ baseline <- baseline %>%
       TRUE ~ FACILITY_MSX))
 
 # read in bed capacity (tableau)
-bed_cap <- read.csv(paste0(cap_dir, "Tableau Data/AVG_TOT_BEDS_2024-06-01_2024-12-31.csv")) %>%
+# List all CSV files in the directory
+bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
+                          pattern = "\\.csv$", full.names = TRUE)
+bed_cap <- bed_cap_csv %>%
+  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
+  rename(HOSPITAL = Location,
+         SERVICE_GROUP = `Service Group`,
+         MEASURE = `Measure Names`,
+         SERVICE_MONTH = `Day of Census Start`) %>%
+  filter(MEASURE == 'Avg Total Beds') %>%
   mutate(
     HOSPITAL = case_when(
       HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
@@ -132,9 +141,10 @@ bed_cap <- read.csv(paste0(cap_dir, "Tableau Data/AVG_TOT_BEDS_2024-06-01_2024-1
       HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
       HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
       HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
-      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH",
-    )
-  )
+      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
+    SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
+  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
+  summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
 ```
 
 # Scenario Data
@@ -164,7 +174,7 @@ rm(baseline, scenario)
 # filter data down to IP bed charges in desired date range
 datasets_processed <- lapply(datasets, function(df) {
   df %>%
-    filter(!is.na(SERVICE_GROUP),
+    filter(!is.na(EXTERNAL_NAME),
            BILLING_CAT_DESC == "BED CHARGES") %>%
     mutate(
       SERVICE_DATE = as.Date(paste0(
@@ -177,7 +187,7 @@ datasets_processed <- lapply(datasets, function(df) {
 })
 ```
 
-# Bed Demand to Capacity
+# Capacity, Demand & Utilization
 ```{r visualize bed demand}
 
 # calculate daily statistics for each hospital and unit type
@@ -185,13 +195,15 @@ demand_capacity <- lapply(datasets_processed, function(df) {
   df %>%
     group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, MONTH_DAYS, SERVICE_DATE) %>%
     summarise(DAILY_DEMAND = sum(QUANTITY), .groups = "drop") %>%
-    left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", "SERVICE_GROUP" = "SERVICE_GROUP")) %>%
+    left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
+                              "SERVICE_GROUP" = "SERVICE_GROUP",
+                              "SERVICE_MONTH" = "SERVICE_MONTH")) %>%
     mutate(UTILIZATION = DAILY_DEMAND/AVG_BED_CAPACITY)
 })
 ```
 
 # Scenario Outputs
-# Demand & Utilization Comparison
+### Demand & Utilization Comparison
 ```{r}
 
 # compare utilization of baseline and scenario at daily level
@@ -227,7 +239,7 @@ results_comparison_total <- results_comparison_monthly %>%
             AVG_VARIANCE_SCENARIO = AVG_DAILY_DEMAND_SCENARIO - AVG_BED_CAPACITY)
 ``` 
 
-# Utilization Output
+### Utilization Output
 ```{r}
 
 # create table for output
@@ -244,47 +256,99 @@ utilization_output <- results_comparison_total %>%
   select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]]))
 
 writexl::write_xlsx(utilization_output, paste0(cap_dir, "Model Outputs/Utilization/util_",
-                                               hospitals[[1]], "-", services[[1]],
-                                               hospitals[[2]], "-", services[[2]], ".xlsx"))
+                                               hospitals[[1]], services[[1]], "-",
+                                               hospitals[[2]], services[[2]], ".xlsx"))
 ```
 
-
-## Visualizations
+### Visualizations
 ```{r}
 
+# get list of service groups effected by scenario
+service_change <- results_comparison_total %>%
+  filter(AVG_UTILIZATION_BASELINE != AVG_UTILIZATION_SCENARIO) %>%
+  ungroup() %>%
+  distinct(SERVICE_GROUP) %>%
+  pull()
+
 # Pivot the data to long format
-results_long <- results_comparison_daily %>%
+results_long <- results_comparison_monthly %>%
+  filter(SERVICE_GROUP %in% service_change) %>%
   pivot_longer(
-    cols = c(UTILIZATION_BASELINE, UTILIZATION_SCENARIO),
+    cols = c(AVG_UTILIZATION_BASELINE, AVG_UTILIZATION_SCENARIO),
     names_to = "Scenario",
     values_to = "Utilization") %>%
   mutate(
     Scenario = case_when(
-      Scenario == "UTILIZATION_BASELINE" ~ "Baseline",
-      Scenario == "UTILIZATION_SCENARIO" ~ "Scenario"),
-    # dummy 100% utilization for services introduced by scenario
+      Scenario == "AVG_UTILIZATION_BASELINE" ~ "Baseline",
+      Scenario == "AVG_UTILIZATION_SCENARIO" ~ "Scenario"),
+    # dummy 95% utilization for services introduced by scenario
     Utilization = case_when(
       Scenario == "Scenario" & is.na(Utilization) ~ 1,
       TRUE ~ Utilization))
 
 # get max utilization for y axis
-y_max <- ceiling(max(results_long$Utilization, na.rm = TRUE))
+#y_max <- ceiling(max(results_long$Utilization, na.rm = TRUE) * 10) / 10
 
 # Plot
 ggplot(results_long, aes(x = SERVICE_MONTH, y = Utilization, fill = Scenario)) +
   geom_bar(stat = "identity", position = "dodge") +
-  geom_hline(yintercept = 1, color = "black", linetype = "solid", linewidth = 0.7) +
-  scale_y_continuous(limits = c(0, y_max)) +
-  facet_grid(SERVICE_GROUP ~ FACILITY_MSX) +
+  geom_hline(yintercept = .95, color = "black", linetype = "solid", linewidth = 0.7) +
+  scale_y_continuous(limits = c(0, 1.5), labels = scales::percent) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  facet_grid(FACILITY_MSX ~ SERVICE_GROUP) +
   labs(title = "Utilization Comparison",
        x = "Service Month",
        y = "Utilization",
        fill = "Scenario") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+  panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    strip.text = element_text(face = "bold"))
 ```
 
 # Quality Checks
+### Epic Encounter Check
+```{r}
+msx_encounters <- glue(
+  "SELECT DISTINCT EPIC_CSN
+   FROM MSX_IP_OUTPUT
+   WHERE ADMIT_DT_SRC >= DATE '2024-01-01' AND 
+         ADMIT_DT_SRC <= DATE '2024-12-31' AND 
+         FACILITY_MSX <> 'MSSN';")
+
+oe_encounters <- glue(
+  "WITH ip AS (
+       SELECT *
+       FROM MSX_IP_OUTPUT
+       WHERE ADMIT_DT_SRC >= DATE '2024-01-01'
+         AND ADMIT_DT_SRC <= DATE '2024-12-31'
+         AND FACILITY_MSX <> 'MSSN'
+   ),
+   charge AS (
+       select *
+       from OE_CHARGE_DETAIL
+       where PRIM_ENC_CSN_ID IN (SELECT EPIC_CSN FROM ip))
+  select distinct PRIM_ENC_CSN_ID from charge"
+)
+
+# create, execute and clear result for MSX IP Encounters
+msx_send <- dbSendQuery(con_prod, msx_encounters)
+msx <- dbFetch(msx_send)
+dbClearResult(msx_send)
+
+# create, execute and clear result for MSX IP Encounters
+oe_send <- dbSendQuery(con_prod, oe_encounters)
+oe <- dbFetch(oe_send)
+dbClearResult(oe_send)
+
+percent_of_encounters <- 
+  (length(msx$EPIC_CSN) - length(setdiff(msx$EPIC_CSN, oe$PRIM_ENC_CSN_ID)))
+/length(msx$EPIC_CSN) 
+
+print(percent_of_encounters)
+
+```
+
 ### Bed Charges Over Time
 ```{r}
 query <- glue(

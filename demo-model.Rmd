@@ -433,41 +433,6 @@ theme(
 )
 ```
 
-#### Unit Type Demand for Scenario
-```{r unit type demand}
-
-# # this plot answers question of, in the scenario situation what would be the unit type demand for the scenario group
-# # filter down data needed for plot
-# unit_type_demand <- ip_utilization[["scenario"]] %>%
-#   filter(FACILITY_MSX %in% hospitals,
-#          VERITY_DEPT_DESC_SRC %in% services)
-# 
-# # define facet labels
-# facility_labels <- setNames(paste(hospitals, "-", services),hospitals)
-# 
-# ggplot(unit_type_demand, aes(x = SERVICE_GROUP,
-#                              fill = FACILITY_MSX)) +
-#   geom_bar() +  
-#   geom_text(
-#     stat = "count",
-#     aes(label = after_stat(count)),
-#     vjust = -0.5,
-#     size = 3) +
-#   facet_wrap(~ FACILITY_MSX,
-#              labeller = labeller(FACILITY_MSX = facility_labels)) + 
-#   scale_y_continuous(
-#     expand = expansion(mult = c(0, 0.1))) +
-#   scale_fill_manual(values = mshs_colors) +
-#   labs(
-#    x = "Service Group",
-#    y = "Count",
-#    title = "Count of Unit Type by Scenario",
-#    fill = "Hospital") +
-#   theme(
-#    axis.text.x = element_text(angle = 45, hjust = 1),
-#    panel.border = element_rect(color = "black", fill = NA, linewidth = 1))
-```
-
 # Quality Checks
 ### Epic Encounter Check
 ```{r encounter check}

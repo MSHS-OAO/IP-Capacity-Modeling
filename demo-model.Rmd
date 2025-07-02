@@ -18,15 +18,48 @@ library(lubridate)
 library(ggplot2)
 library(plotly)
 library(scales)
+library(openxlsx)
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
-                      message = FALSE, tidy = TRUE,
-                      fig.width = 8, fig.height = 5)
+                      message = FALSE,
+                      fig.width = 17, fig.height = 10)
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 # capacity modeling path
 cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
+
+# excel wb function
+add_to_wb <- function(df, sheetname, add_filter = FALSE) {
+  # create sheet name
+  sheet <- addWorksheet(wb, sheetname)
+  
+  setColWidths(wb, sheet, cols = 1:ncol(df), widths = "auto")
+  
+  # write data to sheet
+  writeDataTable(wb,
+                 x = df,
+                 sheet = sheet,
+                 keepNA = FALSE,
+                 withFilter = add_filter)
+  
+  #create cell styles
+  header_style <- createStyle(fgFill = "grey", halign = "left", 
+                             textDecoration = "bold", fontColour = "#010101")
+  body_style <- createStyle(border = "TopBottomLeftRight")
+  
+  # apply cell styles
+  addStyle(wb, sheet, header_style, rows = 1, 
+           cols = 1:ncol(df), gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheet, body_style, rows = 1:(nrow(df) + 1),
+           cols = 1:ncol(df), gridExpand = TRUE, stack = TRUE)
+  
+}
+```
+
+```{r sinai colors, include=FALSE} 
+# Sinai color scheme
+mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
 ```
 
 # Set Scenario Variables
@@ -48,19 +81,49 @@ services <- list(
 # Baseline Data
 ```{r read baseline data}
 
+# read in bed capacity (tableau)
+# List all CSV files in the directory
+bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
+                          pattern = "\\.csv$", full.names = TRUE)
+bed_cap <- bed_cap_csv %>%
+  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
+  rename(HOSPITAL = Location,
+         SERVICE_GROUP = `Service Group`,
+         MEASURE = `Measure Names`,
+         SERVICE_MONTH = `Day of Census Start`) %>%
+  filter(MEASURE == 'Avg Total Beds') %>%
+  mutate(
+    HOSPITAL = case_when(
+      HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
+      HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
+      HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
+      HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
+      HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
+      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
+    SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
+  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
+  summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
+
+# read in charge description categorization file
+charge_cat <- readxl::read_xlsx(paste0(cap_dir, "MSX/BILLING_CAT_DESC.xlsx")) %>%
+  filter(!is.na(CATEGORY))
+charge_desc <- paste(charge_cat$BILLING_CAT_DESC, 
+                              collapse = "\',\'")
+
 # pull in all encounters and their charges. join with service grouping for IP unit type
 baseline_query <- glue(
   "WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE ADMIT_DT_SRC >= DATE '2024-06-01'
-         AND ADMIT_DT_SRC <= DATE '2024-12-31'
+       WHERE ADMIT_DT_SRC >= DATE '2024-05-01'
+         AND ADMIT_DT_SRC <= DATE '2025-01-31'
          AND FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
        select *
        from OE_CHARGE_DETAIL
-       where PRIM_ENC_CSN_ID IN (SELECT EPIC_CSN FROM ip)
+       where PRIM_ENC_CSN_ID IN (SELECT EPIC_CSN FROM ip) AND
+             BILLING_CAT_DESC in (\'{charge_desc}\')
    ),
    service_group AS (
        select *
@@ -124,29 +187,6 @@ baseline <- baseline %>%
       FACILITY_MSX == 'BIB' ~ 'MSB',
       FACILITY_MSX == 'BIP' ~ 'MSBI',
       TRUE ~ FACILITY_MSX))
-
-# read in bed capacity (tableau)
-# List all CSV files in the directory
-bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
-                          pattern = "\\.csv$", full.names = TRUE)
-bed_cap <- bed_cap_csv %>%
-  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
-  rename(HOSPITAL = Location,
-         SERVICE_GROUP = `Service Group`,
-         MEASURE = `Measure Names`,
-         SERVICE_MONTH = `Day of Census Start`) %>%
-  filter(MEASURE == 'Avg Total Beds') %>%
-  mutate(
-    HOSPITAL = case_when(
-      HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
-      HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
-      HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
-      HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
-      HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
-      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
-    SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
-  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
-  summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
 ```
 
 # Scenario Data
@@ -162,22 +202,16 @@ scenario <- baseline %>%
 ```
 
 # Data Processing
-```{r data processing}
-
+```{r dataset list}
 # place datasets in list to iterate through
 datasets <- list(
   "baseline" = baseline,
   "scenario" = scenario
 )
 
-# remove original dataframes to free up space
-rm(baseline, scenario)
-
-# filter data down to IP bed charges in desired date range
+# preprocess raw datasets
 datasets_processed <- lapply(datasets, function(df) {
   df %>%
-    filter(!is.na(EXTERNAL_NAME),
-           BILLING_CAT_DESC == "BED CHARGES") %>%
     mutate(
       SERVICE_DATE = as.Date(paste0(
         substr(SERVICE_DATE, 1, 4), "-",
@@ -185,32 +219,63 @@ datasets_processed <- lapply(datasets, function(df) {
         substr(SERVICE_DATE, 7, 8))),
       SERVICE_MONTH = floor_date(SERVICE_DATE, unit = "month"),
       MONTH_DAYS = days_in_month(SERVICE_MONTH)) %>%
-    filter(SERVICE_DATE <= as.Date("2024-12-31"))
+    filter(SERVICE_DATE <= as.Date("2024-12-31"),
+           SERVICE_DATE >= as.Date("2024-06-01"))
 })
+
+# remove original dataframes to free up space
+rm(baseline, scenario, datasets)
 ```
 
-# Capacity, Demand & Utilization
-```{r visualize bed demand}
+### IP Demand & Utilization
+```{r ip}
 
-# calculate daily statistics for each hospital and unit type
-demand_capacity <- lapply(datasets_processed, function(df) {
+# get billing descripions for IP categories
+ip_mapping <- charge_cat %>% filter(CATEGORY %in% c("IP"))
+
+# filter data down to IP bed charges in desired date range
+ip_utilization <- lapply(datasets_processed, function(df) {
   df %>%
+    filter(!is.na(EXTERNAL_NAME),
+           BILLING_CAT_DESC %in% ip_mapping$BILLING_CAT_DESC) %>%
     group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, MONTH_DAYS, SERVICE_DATE) %>%
     summarise(DAILY_DEMAND = sum(QUANTITY), .groups = "drop") %>%
     left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
                               "SERVICE_GROUP" = "SERVICE_GROUP",
                               "SERVICE_MONTH" = "SERVICE_MONTH")) %>%
-    mutate(UTILIZATION = DAILY_DEMAND/AVG_BED_CAPACITY)
+    mutate(UTILIZATION = DAILY_DEMAND/AVG_BED_CAPACITY,
+           UTILIZATION_90 = case_when(
+             UTILIZATION > .90 ~ TRUE,
+             TRUE ~ FALSE),
+           UTILIZATION_95 = case_when(
+             UTILIZATION > .95 ~ TRUE,
+             TRUE ~ FALSE))
+})
+```
+
+### Lab & Radiology Demand
+```{r lab & radiology}
+
+# get billing descripions for lab and rad categories
+lab_rad_mapping <- charge_cat %>% filter(CATEGORY %in% c("LAB", "RAD"))
+
+# filter down datasets to only include lab and radiology charges
+lab_rad_demand <- lapply(datasets_processed, function(df) {
+  df %>%
+    filter(BILLING_CAT_DESC %in% lab_rad_mapping$BILLING_CAT_DESC) %>%
+    left_join(lab_rad_mapping, by = c("BILLING_CAT_DESC"="BILLING_CAT_DESC")) #%>%
+    #group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE, CATEGORY) %>%
+    #summarise(COUNT = n())
 })
 ```
 
 # Scenario Outputs
-### Demand & Utilization Comparison
+### IP Demand & Utilization Comparison
 ```{r}
 
 # compare utilization of baseline and scenario at daily level
-results_comparison_daily <- demand_capacity[["baseline"]] %>%
-  full_join(demand_capacity[["scenario"]],
+results_comparison_daily <- ip_utilization[["baseline"]] %>%
+  full_join(ip_utilization[["scenario"]],
             by = c("FACILITY_MSX"="FACILITY_MSX",
                    "SERVICE_GROUP"="SERVICE_GROUP",
                    "SERVICE_MONTH"="SERVICE_MONTH",
@@ -225,7 +290,11 @@ results_comparison_monthly <- results_comparison_daily %>%
   summarise(AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE),
             AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO),
             AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE),
-            AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO)) %>%
+            AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO),
+            PERCENT_90_BASELINE = mean(UTILIZATION_90_BASELINE),
+            PERCENT_90_SCENARIO = mean(UTILIZATION_90_SCENARIO),
+            PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE),
+            PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO)) %>%
   mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
   mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
 
@@ -236,12 +305,16 @@ results_comparison_total <- results_comparison_monthly %>%
             AVG_DAILY_DEMAND_SCENARIO = mean(AVG_DAILY_DEMAND_SCENARIO),
             AVG_UTILIZATION_BASELINE =  mean(AVG_UTILIZATION_BASELINE),
             AVG_UTILIZATION_SCENARIO =  mean(AVG_UTILIZATION_SCENARIO),
+            AVG_PERCENT90_BASELINE = mean(PERCENT_90_BASELINE),
+            AVG_PERCENT90_SCENARIO = mean(PERCENT_90_SCENARIO),
+            AVG_PERCENT95_BASELINE = mean(PERCENT_95_BASELINE),
+            AVG_PERCENT95_SCENARIO = mean(PERCENT_95_SCENARIO),
             AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY),
             AVG_VARIANCE_BASELINE = AVG_DAILY_DEMAND_BASELINE - AVG_BED_CAPACITY,
             AVG_VARIANCE_SCENARIO = AVG_DAILY_DEMAND_SCENARIO - AVG_BED_CAPACITY)
 ``` 
 
-### Utilization Output
+### IP Utilization Output
 ```{r utilization output}
 
 # create table for output
@@ -253,17 +326,38 @@ utilization_output <- results_comparison_total %>%
                               AVG_DAILY_DEMAND_SCENARIO,
                               AVG_UTILIZATION_BASELINE,
                               AVG_UTILIZATION_SCENARIO,
+                              AVG_PERCENT90_BASELINE,
+                              AVG_PERCENT90_SCENARIO,
+                              AVG_PERCENT95_BASELINE,
+                              AVG_PERCENT95_SCENARIO,
                               AVG_VARIANCE_BASELINE,
                               AVG_VARIANCE_SCENARIO)) %>%
   select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]]))
+```
 
-writexl::write_xlsx(utilization_output, paste0(cap_dir, "Model Outputs/Utilization/util_",
-                                               hospitals[[1]], services[[1]], "-",
-                                               hospitals[[2]], services[[2]], ".xlsx"))
+### Excel WB
+```{r excel workbook}
+
+# create excel workbook for model outputs
+wb <- createWorkbook()
+
+# add sheet with IP Utilization Output
+add_to_wb(df = utilization_output,
+          sheetname = "IP Utilization Comparison")
+# add sheet with daily IP Stats
+add_to_wb(df = results_comparison_daily,
+          sheetname = "IP Stats Daily",
+          add_filter = TRUE)
+
+saveWorkbook(wb, 
+             file = paste0(cap_dir, "Model Outputs/OUTPUT_",
+                           hospitals[[1]], services[[1]], "-",
+                           hospitals[[2]], services[[2]],"_", Sys.Date(), ".xlsx"),
+             overwrite = TRUE )
 ```
 
 ### Visualizations
-#### Baseline vs. Scenario Utilization
+#### Baseline vs. Scenario IP Utilization
 ```{r baseline vs. scenario}
 
 # get list of service groups effected by scenario
@@ -295,6 +389,7 @@ ggplot(results_long, aes(x = SERVICE_MONTH, y = Utilization, fill = Scenario)) +
   geom_hline(yintercept = .95, color = "black", linetype = "solid", linewidth = 0.7) +
   scale_y_continuous(limits = c(0, 1.5), labels = scales::percent) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_fill_manual(values = mshs_colors) + 
   facet_grid(FACILITY_MSX ~ SERVICE_GROUP) +
   labs(title = "Utilization Comparison",
        x = "Service Month",
@@ -306,8 +401,8 @@ ggplot(results_long, aes(x = SERVICE_MONTH, y = Utilization, fill = Scenario)) +
     strip.text = element_text(face = "bold"))
 ```
 
-#### Daily Scenario Utilization
-```{r utilization over time}
+#### Daily Scenario IP Utilization
+```{r scenario utilization}
 
 # Plot
 ggplot(results_comparison_daily, aes(
@@ -323,7 +418,7 @@ geom_hline(yintercept = 0.95, color = "black", linewidth = 1.2) +
 facet_wrap(~ FACILITY_MSX) +
 scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1.3)) +
 scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-scale_color_discrete(name = "Service Group") +
+scale_color_manual(name = "Service Group", values = mshs_colors) +   
 labs(
   title = "Utilization Over Time",
   x = "Service Date",
@@ -336,47 +431,50 @@ theme(
   strip.text = element_text(face = "bold"),
   panel.border = element_rect(color = "black", fill = NA)
 )
-
-
-
 ```
 
 #### Unit Type Demand for Scenario
 ```{r unit type demand}
 
-# this plot answers question of, in the scenario situation what would be the unit type demand for the scenario group
-# filter down data needed for plot
-unit_type_demand <- datasets_processed[["scenario"]] %>%
-  filter(FACILITY_MSX %in% hospitals,
-         VERITY_DEPT_DESC_SRC %in% services)
-
-# define facet labels
-facility_labels <- setNames(paste(hospitals, "-", services),hospitals)
-
-ggplot(unit_type_demand, aes(x = SERVICE_GROUP)) +
-  geom_bar(fill = "steelblue") +  
-  geom_text(
-    stat = "count",
-    aes(label = after_stat(count)),
-    vjust = -0.5,
-    size = 3) +
-  facet_wrap(~ FACILITY_MSX,
-             labeller = labeller(FACILITY_MSX = facility_labels)) + 
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.1))) +
-  labs(
-   x = "Service Group",
-   y = "Count",
-   title = "Count of Unit Type by Scenario") +
-  theme(
-   axis.text.x = element_text(angle = 45, hjust = 1),
-   panel.border = element_rect(color = "black", fill = NA, size = 1))
+# # this plot answers question of, in the scenario situation what would be the unit type demand for the scenario group
+# # filter down data needed for plot
+# unit_type_demand <- ip_utilization[["scenario"]] %>%
+#   filter(FACILITY_MSX %in% hospitals,
+#          VERITY_DEPT_DESC_SRC %in% services)
+# 
+# # define facet labels
+# facility_labels <- setNames(paste(hospitals, "-", services),hospitals)
+# 
+# ggplot(unit_type_demand, aes(x = SERVICE_GROUP,
+#                              fill = FACILITY_MSX)) +
+#   geom_bar() +  
+#   geom_text(
+#     stat = "count",
+#     aes(label = after_stat(count)),
+#     vjust = -0.5,
+#     size = 3) +
+#   facet_wrap(~ FACILITY_MSX,
+#              labeller = labeller(FACILITY_MSX = facility_labels)) + 
+#   scale_y_continuous(
+#     expand = expansion(mult = c(0, 0.1))) +
+#   scale_fill_manual(values = mshs_colors) +
+#   labs(
+#    x = "Service Group",
+#    y = "Count",
+#    title = "Count of Unit Type by Scenario",
+#    fill = "Hospital") +
+#   theme(
+#    axis.text.x = element_text(angle = 45, hjust = 1),
+#    panel.border = element_rect(color = "black", fill = NA, linewidth = 1))
 ```
-
 
 # Quality Checks
 ### Epic Encounter Check
 ```{r encounter check}
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+
 msx_encounters <- glue(
   "SELECT DISTINCT EPIC_CSN
    FROM MSX_IP_OUTPUT
@@ -423,6 +521,7 @@ query <- glue(
        SELECT *
        FROM MSX_IP_OUTPUT
        WHERE ADMIT_DT_SRC >= DATE '2024-01-01' AND 
+             ADMIT_DT_SRC <= DATE '2024-12-31' AND
              FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
@@ -444,6 +543,7 @@ test <- datacheck %>%
     substr(SERVICE_DATE, 1, 4), "-",
     substr(SERVICE_DATE, 5, 6), "-",
     substr(SERVICE_DATE, 7, 8)))) %>%
+  filter(SERVICE_DATE >= as.Date("2024-06-01")) %>%
   group_by(SERVICE_DATE) %>%
   summarise(count = n())
 

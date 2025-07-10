@@ -80,6 +80,35 @@ services <- list(
 
 # Data Processing
 ```{r dataset list}
+# read in bed capacity (tableau)
+# List all CSV files in the directory
+bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
+                          pattern = "\\.csv$", full.names = TRUE)
+bed_cap <- bed_cap_csv %>%
+  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
+  rename(HOSPITAL = Location,
+         SERVICE_GROUP = `Service Group`,
+         MEASURE = `Measure Names`,
+         SERVICE_MONTH = `Day of Census Start`) %>%
+  filter(MEASURE == 'Avg Total Beds') %>%
+  mutate(
+    HOSPITAL = case_when(
+      HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
+      HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
+      HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
+      HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
+      HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
+      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
+    SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
+  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
+  summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
+
+# read in charge description categorization file
+charge_cat <- readxl::read_xlsx(paste0(cap_dir, "MSX/BILLING_CAT_DESC.xlsx")) %>%
+  filter(!is.na(CATEGORY))
+charge_desc <- paste(charge_cat$BILLING_CAT_DESC, 
+                              collapse = "\',\'")
+
 datasets_processed <- list(
   "baseline" = readRDS(paste0(cap_dir, "Model Outputs/RDS/baseline_processed.RDS")),
   "scenario" = readRDS(paste0(cap_dir, "Model Outputs/RDS/scenario_processed.RDS")))
@@ -213,22 +242,23 @@ lab_rad_results_daily <- lab_rad_demand[["baseline"]] %>%
 ### Lab & Rad Output
 ```{r lab & rad demand output}
 
+# create table for output
 lab_rad_output <- lab_rad_results_daily %>%
   group_by(FACILITY_MSX, SERVICE_MONTH, CATEGORY) %>%
   summarise(COUNT_BASELINE = sum(COUNT_BASELINE, na.rm = T),
             COUNT_SCENARIO = sum(COUNT_SCENARIO, na.rm = T)) %>%
+  mutate(PERCENT_CHANGE = (COUNT_SCENARIO - COUNT_BASELINE)/COUNT_BASELINE) %>%
   pivot_wider(id_cols = SERVICE_MONTH,
               names_from = c(CATEGORY, FACILITY_MSX),
               values_from = c(COUNT_BASELINE, 
-                              COUNT_SCENARIO)) %>%
-  mutate()
+                              COUNT_SCENARIO,
+                              PERCENT_CHANGE)) %>%
   select(SERVICE_MONTH, contains("LAB"), contains("RAD")) %>%
   select(SERVICE_MONTH, contains(hospitals[[1]]), contains(hospitals[[2]]))
 
-
 ```
 
-### Excel WB
+## Excel WB
 ```{r excel workbook}
 
 # create excel workbook for model outputs
@@ -242,12 +272,16 @@ add_to_wb(df = ip_results_daily,
           sheetname = "IP Stats Daily",
           add_filter = TRUE)
 # add sheet with daily Lab & Rad Stats
+add_to_wb(df = lab_rad_output,
+          sheetname = "LAB & RAD Demand",
+          add_filter = TRUE)
+# add sheet with daily Lab & Rad Stats
 add_to_wb(df = lab_rad_results_daily,
-          sheetname = "IP Stats Daily",
+          sheetname = "LAB & RAD Daily",
           add_filter = TRUE)
 
 saveWorkbook(wb, 
-             file = paste0(cap_dir, "Model Outputs/OUTPUT_",
+             file = paste0(cap_dir, "Model Outputs/Workbooks/OUTPUT_",
                            hospitals[[1]], services[[1]], "-",
                            hospitals[[2]], services[[2]],"_", Sys.Date(), ".xlsx"),
              overwrite = TRUE )

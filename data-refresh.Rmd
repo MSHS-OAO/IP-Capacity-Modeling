@@ -1,0 +1,171 @@
+---
+title: "model-data-refresh"
+author: "Greg Lenane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+start <- Sys.time()
+library(knitr)
+library(odbc)
+library(DBI)
+library(glue)
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+library(lubridate)
+library(openxlsx)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+# capacity modeling path
+cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
+```
+
+# Set Scenario Variables
+```{r set scenario}
+
+# set hospitals in scenario
+hospitals <- list(
+  "MSH",
+  "MSM"
+)
+
+# set of services to be swapped in scenario
+services <- list(
+  "CARDIOLOGY",
+  "CARDIOVASCULAR SURGERY"
+)
+```
+
+# Baseline Data
+```{r read baseline data}
+
+# pull in all encounters and their charges. join with service grouping for IP unit type
+baseline_query <- glue(
+  "WITH ip AS (
+       SELECT *
+       FROM MSX_IP_OUTPUT
+       WHERE ADMIT_DT_SRC >= DATE '2024-05-01'
+         AND ADMIT_DT_SRC <= DATE '2025-01-31'
+         AND FACILITY_MSX <> 'MSSN'
+   ),
+   charge AS (
+       select *
+       from OE_CHARGE_DETAIL
+       where PRIM_ENC_CSN_ID IN (SELECT DISTINCT EPIC_CSN FROM ip)
+   ),
+   service_group AS (
+       select *
+       from DASHBD_USER.CLARITY_DEP_REF
+   ),
+   final as (
+   SELECT ip.ENCOUNTER_NO,
+          ip.FACILITY_MSX,
+          ip.DSCH_DT_SRC,
+          ip.DSCH_TIME_SRC,
+          ip.ADMIT_DT_SRC,
+          ip.ADMIT_TIME_SRC,
+          ip.LOS_NO_SRC,
+          ip.PRINCIPAL_SURGEON_CD_SRC,
+          ip.PRINCIPAL_SURGEON_NAME_MSX,
+          ip.MSDRG_CD_SRC,
+          ip.MSDRG_DESC_MSX,
+          ip.ADMIT_SOURCE_CD_MSX,
+          ip.ADMIT_SOURCE_DESC_MSX,
+          ip.P_AVG_LOS_MSDRG,
+          ip.VERITY_DEPT_CD_SRC,
+          ip.VERITY_DEPT_DESC_SRC,
+          ip.VERITY_DIV_CD_SRC,
+          ip.VERITY_DIV_DESC_SRC,
+          charge.FACILITY_ABBR,
+          charge.COST_CENTER_C,
+          charge.CHARGE_C,
+          charge.EPIC_DEPT_ID,
+          charge.EPIC_DEPT_NAME,
+          charge.QUANTITY,
+          charge.SERVICE_DATE,
+          charge.CPT_HCPCS_C,
+          charge.BILLING_CAT_C,
+          charge.BILLING_CAT_DESC,
+          charge.RPT_GRP_NINETEEN_C,
+          charge.RPT_GRP_NINETEEN_DESC,
+          charge.NEW_COST_CENTER_C,
+          charge.NEW_GL_COMPONENT,
+          service_group.EXTERNAL_NAME,
+          service_group.SERVICE_GROUP,
+          service_group.RPT_GRP_TWENTYTHREE
+   FROM ip
+   LEFT JOIN charge
+     ON ip.EPIC_CSN = charge.PRIM_ENC_CSN_ID
+   LEFT JOIN service_group
+     ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
+   )
+   select * from final;")
+
+# create, execute and clear result for MSX IP Charge Desctiptions
+baseline_send <- dbSendQuery(con_prod, baseline_query)
+baseline <- dbFetch(baseline_send)
+dbClearResult(baseline_send)
+
+baseline <- baseline %>%
+  mutate(
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == 'STL' ~ 'MSM',
+      FACILITY_MSX == 'RVT' ~ 'MSW',
+      FACILITY_MSX == 'BIB' ~ 'MSB',
+      FACILITY_MSX == 'BIP' ~ 'MSBI',
+      TRUE ~ FACILITY_MSX))
+```
+
+# Scenario Data
+```{r scenario data}
+
+# create new dummy hospital column to represent new location for scenario population
+scenario <- baseline %>%
+  mutate(
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == hospitals[[1]] & VERITY_DEPT_DESC_SRC == services[[2]] ~ "MSM",
+      FACILITY_MSX == hospitals[[2]] & VERITY_DEPT_DESC_SRC == services[[1]] ~ "MSH",
+      TRUE ~ FACILITY_MSX))
+```
+
+# Data Processing
+```{r dataset list}
+# place datasets in list to iterate through
+datasets <- list(
+  "baseline" = baseline,
+  "scenario" = scenario
+)
+
+# remove original dataframes to free up space
+rm(baseline, scenario, datasets)
+
+# preprocess raw datasets
+datasets_processed <- lapply(datasets, function(df) {
+  df %>%
+    mutate(
+      SERVICE_DATE = as.Date(paste0(
+        substr(SERVICE_DATE, 1, 4), "-",
+        substr(SERVICE_DATE, 5, 6), "-",
+        substr(SERVICE_DATE, 7, 8))),
+      SERVICE_MONTH = floor_date(SERVICE_DATE, unit = "month"),
+      MONTH_DAYS = days_in_month(SERVICE_MONTH)) %>%
+    filter(SERVICE_DATE <= as.Date("2024-12-31"),
+           SERVICE_DATE >= as.Date("2024-06-01"))
+})
+```
+# Save Data
+```{r save data}
+
+saveRDS(datasets_processed[["baseline"]], paste0(cap_dir, "Model Outputs/RDS/baseline_processed.RDS"))
+saveRDS(datasets_processed[["scenario"]], paste0(cap_dir, "Model Outputs/RDS/scenario_processed.RDS"))
+
+runtime = Sys.time() - start
+print(runtime)
+```
+

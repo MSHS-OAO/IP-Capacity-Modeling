@@ -1,0 +1,172 @@
+---
+title: "demo-model"
+author: "Greg Lenane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(odbc)
+library(DBI)
+library(glue)
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(scales)
+library(openxlsx)
+library(readxl)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE,
+                      fig.width = 17, fig.height = 10)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+# capacity modeling path
+cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
+
+# excel wb function
+add_to_wb <- function(df, sheetname, add_filter = FALSE) {
+  # create sheet name
+  sheet <- addWorksheet(wb, sheetname)
+  
+  setColWidths(wb, sheet, cols = 1:ncol(df), widths = "auto")
+  
+  # write data to sheet
+  writeDataTable(wb,
+                 x = df,
+                 sheet = sheet,
+                 keepNA = FALSE,
+                 withFilter = add_filter)
+  
+  #create cell styles
+  header_style <- createStyle(fgFill = "grey", halign = "left", 
+                             textDecoration = "bold", fontColour = "#010101")
+  body_style <- createStyle(border = "TopBottomLeftRight")
+  
+  # apply cell styles
+  addStyle(wb, sheet, header_style, rows = 1, 
+           cols = 1:ncol(df), gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheet, body_style, rows = 1:(nrow(df) + 1),
+           cols = 1:ncol(df), gridExpand = TRUE, stack = TRUE)
+  
+}
+```
+
+```{r sinai colors, include=FALSE} 
+# Sinai color scheme
+mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
+```
+
+# Set Scenario Variables
+```{r set scenario}
+
+# set hospitals in scenario
+hospitals <- list(
+  "MSH",
+  "MSM"
+)
+
+# set of services to be swapped in scenario
+services <- list(
+  "CARDIOLOGY",
+  "CARDIOVASCULAR SURGERY"
+)
+```
+
+# Read Processing
+```{r dataset list}
+# read in bed capacity (tableau)
+# List all CSV files in the directory
+bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
+                          pattern = "\\.csv$", full.names = TRUE)
+bed_cap <- bed_cap_csv %>%
+  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
+  rename(HOSPITAL = Location,
+         SERVICE_GROUP = `Service Group`,
+         MEASURE = `Measure Names`,
+         SERVICE_MONTH = `Day of Census Start`) %>%
+  filter(MEASURE == 'Avg Total Beds') %>%
+  mutate(
+    HOSPITAL = case_when(
+      HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
+      HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
+      HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
+      HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
+      HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
+      HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
+    SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
+  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
+  summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
+
+# read in charge description categorization file
+charge_cat <- read_xlsx(paste0(cap_dir, "MSX/BILLING_CAT_DESC.xlsx")) %>%
+  filter(!is.na(CATEGORY))
+
+# read in cpt mapping file
+cpt_map <- read_xlsx(paste0(cap_dir, "MSX/CPT_MAPPING.xlsx"))
+
+# read in processed data from data refresh script
+datasets_processed <- list(
+  "baseline" = readRDS(paste0(cap_dir, "Model Outputs/RDS/baseline_processed.RDS")),
+  "scenario" = readRDS(paste0(cap_dir, "Model Outputs/RDS/scenario_processed.RDS")))
+```
+
+### IP Demand & Utilization
+```{r ip}
+
+# get billing descripions for IP categories
+ip_mapping <- charge_cat %>% filter(CATEGORY %in% c("IP"))
+
+# filter data down to IP bed charges in desired date range
+ip_utilization <- lapply(datasets_processed, function(df) {
+  df %>%
+    filter(!is.na(EXTERNAL_NAME),
+           BILLING_CAT_DESC %in% ip_mapping$BILLING_CAT_DESC) %>%
+    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, MONTH_DAYS, SERVICE_DATE) %>%
+    summarise(DAILY_DEMAND = sum(QUANTITY), .groups = "drop") %>%
+    left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
+                              "SERVICE_GROUP" = "SERVICE_GROUP",
+                              "SERVICE_MONTH" = "SERVICE_MONTH")) %>%
+    mutate(UTILIZATION = DAILY_DEMAND/AVG_BED_CAPACITY,
+           UTILIZATION_90 = case_when(
+             UTILIZATION > .90 ~ TRUE,
+             TRUE ~ FALSE),
+           UTILIZATION_95 = case_when(
+             UTILIZATION > .95 ~ TRUE,
+             TRUE ~ FALSE))
+})
+```
+
+### Lab & Radiology Demand
+```{r lab & radiology demand}
+
+# lab demand
+lab_demand <- lapply(datasets_processed, function(df) {
+  df %>%
+    left_join(cpt_map, by = c("CPT_HCPCS_C"="CPT")) %>%
+    filter(LAB_COUNT == 1)
+})
+
+# rad demand
+rad_demand <- lapply(datasets_processed, function(df) {
+  df %>%
+    filter(BILLING_CAT_DESC %in% (charge_cat %>% 
+                                    filter(CATEGORY == "RAD") %>%
+                                    pull(BILLING_CAT_DESC))) %>%
+    left_join(cpt_map, by = c("CPT_HCPCS_C"="CPT")) %>%
+    filter(CPT_COUNT == 1)
+})
+```
+
+# Reduce Memory
+```{r clear memory}
+
+rm(datasets_processed)
+```
+

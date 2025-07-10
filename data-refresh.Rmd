@@ -50,14 +50,15 @@ baseline_query <- glue(
   "WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE ADMIT_DT_SRC >= DATE '2024-05-01'
-         AND ADMIT_DT_SRC <= DATE '2025-01-31'
-         AND FACILITY_MSX <> 'MSSN'
+       WHERE DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' OR
+           ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' AND 
+           FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
        select *
        from OE_CHARGE_DETAIL
-       where PRIM_ENC_CSN_ID IN (SELECT DISTINCT EPIC_CSN FROM ip)
+       where PRIM_ENC_CSN_ID IN (SELECT DISTINCT EPIC_CSN FROM ip) AND
+             SERVICE_DATE BETWEEN 20240601 AND 20241231
    ),
    service_group AS (
        select *
@@ -154,9 +155,7 @@ datasets_processed <- lapply(datasets, function(df) {
         substr(SERVICE_DATE, 5, 6), "-",
         substr(SERVICE_DATE, 7, 8))),
       SERVICE_MONTH = floor_date(SERVICE_DATE, unit = "month"),
-      MONTH_DAYS = days_in_month(SERVICE_MONTH)) %>%
-    filter(SERVICE_DATE <= as.Date("2024-12-31"),
-           SERVICE_DATE >= as.Date("2024-06-01"))
+      MONTH_DAYS = days_in_month(SERVICE_MONTH))
 })
 ```
 # Save Data

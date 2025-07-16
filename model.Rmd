@@ -26,9 +26,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
                       fig.width = 17, fig.height = 10)
 
 # OAO_PRODUCTION DB connection
-con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+con_prod <- dbConnect(odbc(), "OAO_PRODUCTION")
 # capacity modeling path
-cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
+cap_dir <- "J:/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
 
 # excel wb function
 add_to_wb <- function(df, sheetname, add_filter = FALSE) {
@@ -113,23 +113,49 @@ cpt_map <- read_xlsx(paste0(cap_dir, "MSX/CPT_MAPPING.xlsx"))
 
 # read in processed data from data refresh script
 datasets_processed <- list(
-  "baseline" = readRDS(paste0(cap_dir, "Model Outputs/RDS/baseline_processed.RDS")),
-  "scenario" = readRDS(paste0(cap_dir, "Model Outputs/RDS/scenario_processed.RDS")))
+  "baseline" = tbl(con_prod, "IPCAP_PROCESSED_DATA") %>%
+    mutate(
+      SERVICE_DATE = TO_DATE(SERVICE_DATE, 'YYYYMMDD'),
+      SERVICE_MONTH = sql("TRUNC(TO_DATE(SERVICE_DATE, 'YYYYMMDD'), 'MM')"),
+      FACILITY_MSX = case_when(
+        FACILITY_MSX == 'STL' ~ 'MSM',
+        FACILITY_MSX == 'RVT' ~ 'MSW',
+        FACILITY_MSX == 'BIB' ~ 'MSB',
+        FACILITY_MSX == 'BIP' ~ 'MSBI',
+        TRUE ~ FACILITY_MSX)),
+  "scenario" = tbl(con_prod, "IPCAP_PROCESSED_DATA") %>%
+    mutate(
+      SERVICE_DATE = TO_DATE(SERVICE_DATE, 'YYYYMMDD'),
+      SERVICE_MONTH = sql("TRUNC(TO_DATE(SERVICE_DATE, 'YYYYMMDD'), 'MM')"),
+      FACILITY_MSX = case_when(
+        FACILITY_MSX == 'STL' ~ 'MSM',
+        FACILITY_MSX == 'RVT' ~ 'MSW',
+        FACILITY_MSX == 'BIB' ~ 'MSB',
+        FACILITY_MSX == 'BIP' ~ 'MSBI',
+        TRUE ~ FACILITY_MSX),
+      FACILITY_MSX = case_when(
+        FACILITY_MSX == local(hospitals[[1]]) & VERITY_DEPT_DESC_SRC == local(services[[2]]) ~ "MSM",
+        FACILITY_MSX == local(hospitals[[2]]) & VERITY_DEPT_DESC_SRC == local(services[[1]]) ~ "MSH",
+        TRUE ~ FACILITY_MSX)))
 ```
 
 ### IP Demand & Utilization
 ```{r ip}
 
 # get billing descripions for IP categories
-ip_mapping <- charge_cat %>% filter(CATEGORY %in% c("IP"))
+ip_mapping <- tbl(con_prod, "IPCAP_BILLING_CAT_DESC") %>%
+  filter(CATEGORY == "IP") %>%
+  collect() %>%
+  pull(BILLING_CAT_DESC)
 
 # filter data down to IP bed charges in desired date range
 ip_utilization <- lapply(datasets_processed, function(df) {
   df %>%
     filter(!is.na(EXTERNAL_NAME),
-           BILLING_CAT_DESC %in% ip_mapping$BILLING_CAT_DESC) %>%
-    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, MONTH_DAYS, SERVICE_DATE) %>%
+           BILLING_CAT_DESC == ip_mapping) %>%
+    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
     summarise(DAILY_DEMAND = sum(QUANTITY), .groups = "drop") %>%
+    collect() %>%
     left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
                               "SERVICE_GROUP" = "SERVICE_GROUP",
                               "SERVICE_MONTH" = "SERVICE_MONTH")) %>%
@@ -146,15 +172,18 @@ ip_utilization <- lapply(datasets_processed, function(df) {
 ### Lab & Radiology Demand
 ```{r lab & radiology demand}
 
+# hospitals vector
+hospitals_vec <- unlist(hospitals)
+
 # lab demand
 lab_demand <- list()
 for (i in 1:length(datasets_processed)) {
   lab_demand[[i]] <- datasets_processed[[i]] %>%
-    filter(FACILITY_MSX %in% hospitals) %>%
-    left_join(cpt_map, by = c("CPT_HCPCS_C"="CPT")) %>%
+    filter(FACILITY_MSX %in% hospitals_vec) %>%
     filter(LAB_COUNT == 1) %>%
-    group_by(FACILITY_MSX, SERVICE_MONTH, SERVICE_DATE, CPT_HCPCS_C, DESCRIPTION_LONG) %>%
+    group_by(FACILITY_MSX, SERVICE_MONTH, SERVICE_DATE, CPT_HCPCS_C, DESCRIPTION_SHORT) %>%
     summarise(DEMAND = sum(QUANTITY)) %>%
+    collect() %>%
     mutate(CATEGORY = "LAB",
            DATASET = names(datasets_processed)[i])
   names(lab_demand)[i] <- names(datasets_processed)[i]
@@ -164,28 +193,39 @@ for (i in 1:length(datasets_processed)) {
 rad_demand <- list()
 for (i in 1:length(datasets_processed)) {
   rad_demand[[i]] <- datasets_processed[[i]] %>%
-    filter(FACILITY_MSX %in% hospitals,
-           BILLING_CAT_DESC %in% (charge_cat %>% 
-                                    filter(CATEGORY == "RAD") %>%
-                                    pull(BILLING_CAT_DESC))) %>%
-    left_join(cpt_map, by = c("CPT_HCPCS_C"="CPT")) %>%
-    filter(CPT_COUNT == 1) %>%
-    group_by(FACILITY_MSX, SERVICE_MONTH, SERVICE_DATE, CPT_HCPCS_C, DESCRIPTION_LONG) %>%
+    filter(FACILITY_MSX %in% hospitals_vec,
+           CATEGORY == "RAD",
+           CPT_COUNT == 1) %>%
+    group_by(FACILITY_MSX, SERVICE_MONTH, SERVICE_DATE, CPT_HCPCS_C, DESCRIPTION_SHORT) %>%
     summarise(DEMAND = sum(QUANTITY)) %>%
+    collect() %>%
     mutate(CATEGORY = "RAD",
            DATASET = names(datasets_processed)[i])
   names(rad_demand)[i] <- names(datasets_processed)[i]
 }
 
 # comparison of average lab/rad charges for all baseline verity departments
-lab_rad_baseline_comp <- datasets_processed[["baseline"]] %>%
-  filter(FACILITY_MSX %in% hospitals) %>%
-  left_join(cpt_map, by = c("CPT_HCPCS_C"="CPT")) %>%
-  filter(LAB_COUNT == 1) %>%
+lab_baseline_comp <- datasets_processed[["baseline"]] %>%
+  filter(FACILITY_MSX %in% hospitals_vec,
+         LAB_COUNT == 1) %>%
   group_by(FACILITY_MSX, VERITY_DEPT_DESC_SRC, ENCOUNTER_NO) %>%
   summarise(SUM_LAB = sum(QUANTITY)) %>%
   group_by(FACILITY_MSX, VERITY_DEPT_DESC_SRC) %>%
-  summarise(AVG_LAB = mean(SUM_LAB))
+  summarise(AVG_LAB = mean(SUM_LAB)) %>%
+  arrange(VERITY_DEPT_DESC_SRC) %>%
+  collect()
+
+# comparison
+rad_baseline_comp <- datasets_processed[["baseline"]] %>%
+  filter(FACILITY_MSX %in% hospitals_vec,
+         CATEGORY == "RAD",
+         CPT_COUNT == 1) %>%
+  group_by(FACILITY_MSX, VERITY_DEPT_DESC_SRC, ENCOUNTER_NO) %>%
+  summarise(SUM_RAD = sum(QUANTITY)) %>%
+  group_by(FACILITY_MSX, VERITY_DEPT_DESC_SRC) %>%
+  summarise(AVG_RAD = mean(SUM_RAD)) %>%
+  arrange(VERITY_DEPT_DESC_SRC) %>%
+  collect()
 
 # combine all and remove individual dfs
 lab_rad_demand <- rbind(
@@ -196,12 +236,6 @@ lab_rad_demand <- rbind(
 )
 
 rm(lab_demand, rad_demand)
-```
-
-## Reduce Memory
-```{r clear memory}
-
-rm(datasets_processed)
 ```
 
 # Scenario Outputs
@@ -274,12 +308,6 @@ ip_utilization_output <- ip_comparison_total %>%
 ```
 
 ## Lab & Radiology
-### Lab & Rad Baseline Comparison
-```{r lab & rad baseline comparison}
-
-# create table for output
-```
-
 ### Lab & Rad Scenario Comparison
 ```{r lab & rad scenario comparison}
 
@@ -304,6 +332,15 @@ lab_rad_output <- lab_rad_demand %>%
 
 ```
 
+### Lab & Rad Baseline Comparison
+```{r lab & rad baseline comparison}
+
+# create table for output
+lab_rad_baseline_comp <- lab_baseline_comp %>%
+  left_join(rad_baseline_comp, by = c("FACILITY_MSX"="FACILITY_MSX",
+                                     "VERITY_DEPT_DESC_SRC"="VERITY_DEPT_DESC_SRC"))
+```
+
 ## Excel WB
 ```{r excel workbook}
 
@@ -320,6 +357,9 @@ add_to_wb(df = ip_comparison_daily,
 # add sheet with daily Lab & Rad Stats
 add_to_wb(df = lab_rad_output,
           sheetname = "LAB & RAD Demand")
+# add sheet with avg charges per patient
+add_to_wb(df = lab_rad_baseline_comp,
+          sheetname = "LAB & RAD Patient Charges")
 # add sheet with daily Lab & Rad Stats
 add_to_wb(df = lab_rad_demand,
           sheetname = "LAB & RAD Daily",

@@ -50,9 +50,9 @@ baseline_query <- glue(
   "WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' OR
-           ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' AND 
-           FACILITY_MSX <> 'MSSN'
+       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-10-01' AND DATE '2024-12-31' OR
+              ADMIT_DT_SRC BETWEEN DATE '2024-10-01' AND DATE '2024-12-31') AND
+              FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
        select *
@@ -64,6 +64,15 @@ baseline_query <- glue(
        select *
        from DASHBD_USER.CLARITY_DEP_REF
    ),
+    cpt as (
+        select CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT
+        from IPCAP_CPT_MAPPING
+        where CPT in (SELECT DISTINCT CPT_HCPCS_C from charge)
+   ),
+    billing_cat as (
+        select *
+        from IPCAP_BILLING_CAT_DESC
+    ),
    final as (
    SELECT ip.ENCOUNTER_NO,
           ip.FACILITY_MSX,
@@ -91,8 +100,12 @@ baseline_query <- glue(
           charge.QUANTITY,
           charge.SERVICE_DATE,
           charge.CPT_HCPCS_C,
+          cpt.CPT_COUNT,
+          cpt.LAB_COUNT,
+          cpt.DESCRIPTION_SHORT,
           charge.BILLING_CAT_C,
           charge.BILLING_CAT_DESC,
+          billing_cat.CATEGORY,
           charge.RPT_GRP_NINETEEN_C,
           charge.RPT_GRP_NINETEEN_DESC,
           charge.NEW_COST_CENTER_C,
@@ -105,6 +118,10 @@ baseline_query <- glue(
      ON ip.EPIC_CSN = charge.PRIM_ENC_CSN_ID
    LEFT JOIN service_group
      ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
+   LEFT JOIN cpt
+     ON charge.CPT_HCPCS_C = cpt.CPT
+   LEFT JOIN billing_cat
+     ON charge.BILLING_CAT_DESC = billing_cat.BILLING_CAT_DESC
    )
    select * from final;")
 
@@ -144,7 +161,7 @@ datasets <- list(
 )
 
 # remove original dataframes to free up space
-rm(baseline, scenario, datasets)
+rm(baseline, scenario)
 
 # preprocess raw datasets
 datasets_processed <- lapply(datasets, function(df) {
@@ -157,6 +174,9 @@ datasets_processed <- lapply(datasets, function(df) {
       SERVICE_MONTH = floor_date(SERVICE_DATE, unit = "month"),
       MONTH_DAYS = days_in_month(SERVICE_MONTH))
 })
+
+# remove original dataframes to free up space
+rm(datasets)
 ```
 # Save Data
 ```{r save data}

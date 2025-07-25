@@ -59,9 +59,6 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 
 # Scenario Parameters ----------------------------------------------------------
 
-n_simulations <- 100
-percent = .9
-
 # set hospitals in scenario
 hospitals <- list(
   "MSH",
@@ -82,17 +79,11 @@ render("model-ip-utilization.Rmd")
 render("model-lab-rad.Rmd")
 
 # execute % simulation script
-sim_type <- vol_ed
-n_simulations <- 100
-percent = .7
-render(laith)
-
-
-n_simulations <- 100
-percent = .5
-render(laith)
 #CANT USE VARIABLE NAMES SAVED IN WORKBOOKS BELOW#
 # render()
+
+# execute visualization script
+
 
 # Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs

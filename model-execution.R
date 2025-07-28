@@ -59,6 +59,8 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 
 # Scenario Parameters ----------------------------------------------------------
 
+num_days <- month(as.Date("2024-12-31")) - month(as.Date("2024-06-01")) + 1
+
 # set hospitals in scenario
 hospitals <- list(
   "MSH",
@@ -83,6 +85,7 @@ render("model-lab-rad.Rmd")
 # render()
 
 # execute visualization script
+render("model-visualizations.Rmd")
 
 
 # Save Workbook ----------------------------------------------------------------

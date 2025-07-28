@@ -105,31 +105,44 @@ ip_comparison_daily <- ip_utilization[["baseline"]] %>%
 # aggregate comparison at monthly level
 ip_comparison_monthly <- ip_comparison_daily %>%
   group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, AVG_BED_CAPACITY) %>%
-  summarise(AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE),
-            AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO),
-            AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE),
-            AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO),
-            PERCENT_90_BASELINE = mean(UTILIZATION_90_BASELINE),
-            PERCENT_90_SCENARIO = mean(UTILIZATION_90_SCENARIO),
-            PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE),
-            PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO)) %>%
+  summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
+            TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
+            TOTAL_90_BASELINE = sum(UTILIZATION_90_BASELINE),
+            TOTAL_90_SCENARIO = sum(UTILIZATION_90_SCENARIO),
+            TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
+            TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
+            AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY)) %>%
+  mutate(AVG_DAILY_DEMAND_BASELINE = TOTAL_DEMAND_BASELINE/days_in_month(SERVICE_MONTH),
+         AVG_DAILY_DEMAND_SCENARIO = TOTAL_DEMAND_SCENARIO/days_in_month(SERVICE_MONTH),
+         AVG_PERCENT_90_BASELINE = TOTAL_90_BASELINE/days_in_month(SERVICE_MONTH),
+         AVG_PERCENT_90_SCENARIO = TOTAL_90_SCENARIO/days_in_month(SERVICE_MONTH),
+         AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/days_in_month(SERVICE_MONTH),
+         AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/days_in_month(SERVICE_MONTH),
+         AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY,
+         AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY) %>%
   mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
   mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
 
 # aggregate comparison at total level
-ip_comparison_total <- ip_comparison_monthly %>%
+ip_comparison_total <- ip_comparison_daily %>%
   group_by(FACILITY_MSX, SERVICE_GROUP) %>% 
-  summarise(AVG_DAILY_DEMAND_BASELINE = mean(AVG_DAILY_DEMAND_BASELINE),
-            AVG_DAILY_DEMAND_SCENARIO = mean(AVG_DAILY_DEMAND_SCENARIO),
-            AVG_UTILIZATION_BASELINE =  mean(AVG_UTILIZATION_BASELINE),
-            AVG_UTILIZATION_SCENARIO =  mean(AVG_UTILIZATION_SCENARIO),
-            AVG_PERCENT90_BASELINE = mean(PERCENT_90_BASELINE),
-            AVG_PERCENT90_SCENARIO = mean(PERCENT_90_SCENARIO),
-            AVG_PERCENT95_BASELINE = mean(PERCENT_95_BASELINE),
-            AVG_PERCENT95_SCENARIO = mean(PERCENT_95_SCENARIO),
-            AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY),
-            AVG_VARIANCE_BASELINE = AVG_DAILY_DEMAND_BASELINE - AVG_BED_CAPACITY,
-            AVG_VARIANCE_SCENARIO = AVG_DAILY_DEMAND_SCENARIO - AVG_BED_CAPACITY)
+  summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
+            TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
+            TOTAL_90_BASELINE = sum(UTILIZATION_90_BASELINE),
+            TOTAL_90_SCENARIO = sum(UTILIZATION_90_SCENARIO),
+            TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
+            TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
+            AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY)) %>%
+  mutate(AVG_DAILY_DEMAND_BASELINE = TOTAL_DEMAND_BASELINE/num_days,
+         AVG_DAILY_DEMAND_SCENARIO = TOTAL_DEMAND_SCENARIO/num_days,
+         AVG_PERCENT_90_BASELINE = TOTAL_90_BASELINE/num_days,
+         AVG_PERCENT_90_SCENARIO = TOTAL_90_SCENARIO/num_days,
+         AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/num_days,
+         AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/num_days,
+         AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY,
+         AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY) %>%
+  mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
+  mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
 
 rm(ip_utilization)
 ``` 
@@ -146,11 +159,9 @@ ip_utilization_output <- ip_comparison_total %>%
                               AVG_DAILY_DEMAND_SCENARIO,
                               AVG_UTILIZATION_BASELINE,
                               AVG_UTILIZATION_SCENARIO,
-                              AVG_PERCENT90_BASELINE,
-                              AVG_PERCENT90_SCENARIO,
-                              AVG_PERCENT95_BASELINE,
-                              AVG_PERCENT95_SCENARIO,
-                              AVG_VARIANCE_BASELINE,
-                              AVG_VARIANCE_SCENARIO)) %>%
+                              AVG_PERCENT_90_BASELINE,
+                              AVG_PERCENT_90_SCENARIO,
+                              AVG_PERCENT_95_BASELINE,
+                              AVG_PERCENT_95_SCENARIO)) %>%
   select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]])) 
 ```

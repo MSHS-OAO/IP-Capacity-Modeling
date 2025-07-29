@@ -3,6 +3,36 @@ title: "model-visualizations"
 output: html_document
 date: "`r Sys.Date()`"
 ---
+# Ip Demand
+## Bed Charges by Hospital Over Time
+```{r hosp bed charges trend}
+
+# trend bed charges (total) over time
+run_rate <- datasets_processed[["baseline"]] %>%
+  filter(BILLING_CAT_DESC == 'BED CHARGES') %>%
+  group_by(FACILITY_MSX, SERVICE_DATE) %>%
+  summarise(count = n()) %>%
+  collect() %>%
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+
+ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = FACILITY_MSX)) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.05, linewidth = 1.2, alpha = 0.9) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_color_manual(values = mshs_colors) +
+  labs(
+    title = "Bed Charge by Hospital Over Time",
+    x = "Service Date",
+    y = "Count",
+    color = "Hospital"
+  ) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        strip.text = element_text(size = 12, face = "bold"))
+```
 
 # IP Utilization
 ## Total Utilization Baseline vs. Scenario
@@ -18,7 +48,7 @@ total_utilization <- ip_comparison_daily %>%
 
 
 ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset)) +
-  geom_smooth(method = "loess", se = FALSE, span = 0.08, linewidth = 1.2) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.06, linewidth = 1) +
   facet_wrap(~ FACILITY_MSX) +
   scale_y_continuous(labels = scales::percent) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
@@ -27,13 +57,13 @@ ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset
        x = "Service Date",
        y = "Utilization",
        color = "Dataset") +
-  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
         axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12),
-        strip.text = element_text(size = 14, face = "bold"))
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 8),
+        strip.text = element_text(size = 12, face = "bold"))
 ```
 
 ## Baseline vs. Scenario IP Utilization

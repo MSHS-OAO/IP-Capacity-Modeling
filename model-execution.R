@@ -59,7 +59,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 
 # Scenario Parameters ----------------------------------------------------------
 
-num_days <- month(as.Date("2024-12-31")) - month(as.Date("2024-06-01")) + 1
+num_days <- as.numeric(difftime(as.Date("2024-12-31"), as.Date("2024-06-01"), units = "days"))
 
 # set hospitals in scenario
 hospitals <- list(

@@ -57,7 +57,6 @@ datasets_processed <- list(
 
 
 ## Lab & Radiology Demand
-
 # hospitals vector
 hospitals_vec <- unlist(hospitals)
 
@@ -125,7 +124,6 @@ rm(lab_demand, rad_demand)
 
 # Scenario Outputs
 ## Lab & Rad Scenario Comparison
-
 # create table for output
 lab_rad_output <- lab_rad_demand %>%
   filter(FACILITY_MSX %in% hospitals) %>%
@@ -145,9 +143,7 @@ lab_rad_output <- lab_rad_demand %>%
   select(SERVICE_MONTH, contains("LAB"), contains("RAD")) %>%
   select(SERVICE_MONTH, contains(hospitals[[1]]), contains(hospitals[[2]]))
 
-
 ## Lab & Rad Baseline Comparison
-
 # create table for output
 lab_rad_baseline_comp <- lab_baseline_comp %>%
   left_join(rad_baseline_comp, by = c("FACILITY_MSX"="FACILITY_MSX",

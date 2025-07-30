@@ -4,9 +4,6 @@ output: html_document
 date: "`r Sys.Date()`"
 ---
 
-
-
-
 # Read Processing
 ```{r dataset list}
 ####
@@ -28,6 +25,7 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
 ####
     
     
+
 # read in bed capacity (tableau)
 # List all CSV files in the directory
 bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
@@ -69,6 +67,7 @@ datasets_processed <- list(
 ## IP Demand & Utilization
 
 
+
 # get billing descripions for IP categories
 ip_mapping <- tbl(con_prod, "IPCAP_BILLING_CAT_DESC") %>%
   filter(CATEGORY == "IP") %>%
@@ -95,10 +94,8 @@ ip_utilization <- lapply(datasets_processed, function(df) {
              TRUE ~ FALSE))
 })
 
-
 # Scenario Outputs
 ## IP Demand & Utilization Comparison
-
 # compare utilization of baseline and scenario at daily level
 ip_comparison_daily <- ip_utilization[["baseline"]] %>%
   full_join(ip_utilization[["scenario"]],
@@ -205,8 +202,5 @@ ip_utilization_output <- ip_comparison_total %>%
       ip_comparison_daily = ip_comparison_daily,
       ip_comparison_monthly = ip_comparison_monthly
       ))
-  
-  
-
 }
 ```

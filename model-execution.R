@@ -58,10 +58,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
                       fig.width = 17, fig.height = 10)
 
 # Scenario Parameters ----------------------------------------------------------
-
-
 num_days <- as.numeric(difftime(as.Date("2024-12-31"), as.Date("2024-06-01"), units = "days"))
-
 
 # set hospitals in scenario
 hospitals <- list(
@@ -75,10 +72,7 @@ services <- list(
   "CARDIOVASCULAR SURGERY"
 )
 
-
 # Render Models ----------------------------------------------------------------
-
-
 # execute lab and radiology script
 render("model-lab-rad.Rmd")
 
@@ -89,8 +83,6 @@ render("scenario_generator_location_swap.Rmd")
 # execute ip utilziation script
 render("model-ip-utilization.Rmd")
 
-
-
 # run code for IP_Utilization
 results <- ip_utilization_model (
   generator = scenario_generator_location_swap,
@@ -100,7 +92,11 @@ results <- ip_utilization_model (
   percentage = 0.5
 )
 
-
+# Unpack values from IP result list
+ip_utilization_output = results$ip_utilization_output
+ip_comparison_total = results$ip_comparison_total
+ip_comparison_daily = results$ip_comparison_daily
+ip_comparison_monthly = results$ip_comparison_monthly
 
 # run code for lab_rad
 lab_results <- lab_rad_model (
@@ -111,25 +107,13 @@ lab_results <- lab_rad_model (
   percentage = 0.5
 )
 
-
-
-# Unpack values from IP result list
-ip_utilization_output = results$ip_utilization_output
-ip_comparison_total = results$ip_comparison_total
-ip_comparison_daily = results$ip_comparison_daily
-ip_comparison_monthly = results$ip_comparison_monthly
-
 # unpack lab from lab_results
 lab_rad_baseline_comp = lab_results$lab_rad_baseline_comp
 lab_rad_demand = lab_results$lab_rad_demand
 lab_rad_output = lab_results$lab_rad_output
 
-
-
 # execute visualization script
 render("model-visualizations.Rmd")
-
-
 
 # Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs

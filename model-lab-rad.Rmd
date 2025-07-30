@@ -8,10 +8,20 @@ date: "`r Sys.Date()`"
 ```{r dataset list}
 # read in bed capacity (tableau)
 # List all CSV files in the directory
+
+lab_rad_model <- function(generator,n_simulations, hospitals, services, percentage = 0.9)
+{
+  
+    # for loop
+  outputs_list <- lapply(1:n_simulations, function(i) {
+    
+    print(paste("Running simulation #", i))
+
+  
 bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
                           pattern = "\\.csv$", full.names = TRUE)
 bed_cap <- bed_cap_csv %>%
-  map_dfr(~ read_csv(.x) %>% mutate(source_file = basename(.x))) %>%
+  map_dfr(~ read_csv(.x, show_col_types = FALSE) %>% mutate(source_file = basename(.x))) %>%
   rename(HOSPITAL = Location,
          SERVICE_GROUP = `Service Group`,
          MEASURE = `Measure Names`,
@@ -41,26 +51,12 @@ datasets_processed <- list(
         FACILITY_MSX == 'BIB' ~ 'MSB',
         FACILITY_MSX == 'BIP' ~ 'MSBI',
         TRUE ~ FACILITY_MSX)),
-  "scenario" = tbl(con_prod, "IPCAP_PROCESSED_DATA") %>%
-    mutate(
-      SERVICE_DATE = TO_DATE(SERVICE_DATE, 'YYYYMMDD'),
-      SERVICE_MONTH = sql("TRUNC(TO_DATE(SERVICE_DATE, 'YYYYMMDD'), 'MM')"),
-      FACILITY_MSX = case_when(
-        FACILITY_MSX == 'STL' ~ 'MSM',
-        FACILITY_MSX == 'RVT' ~ 'MSW',
-        FACILITY_MSX == 'BIB' ~ 'MSB',
-        FACILITY_MSX == 'BIP' ~ 'MSBI',
-        TRUE ~ FACILITY_MSX),
-      FACILITY_MSX = case_when(
-        FACILITY_MSX == local(hospitals[[1]]) & VERITY_DEPT_DESC_SRC == local(services[[2]]) ~ "MSM",
-        FACILITY_MSX == local(hospitals[[2]]) & VERITY_DEPT_DESC_SRC == local(services[[1]]) ~ "MSH",
-        TRUE ~ FACILITY_MSX)))
-```
+  "scenario" = generator(hospitals, services, percentage = percentage)
+  )
+
 
 
 ## Lab & Radiology Demand
-```{r lab & radiology demand}
-
 # hospitals vector
 hospitals_vec <- unlist(hospitals)
 
@@ -125,12 +121,9 @@ lab_rad_demand <- rbind(
 )
 
 rm(lab_demand, rad_demand)
-```
 
 # Scenario Outputs
 ## Lab & Rad Scenario Comparison
-```{r lab & rad scenario comparison}
-
 # create table for output
 lab_rad_output <- lab_rad_demand %>%
   filter(FACILITY_MSX %in% hospitals) %>%
@@ -150,13 +143,43 @@ lab_rad_output <- lab_rad_demand %>%
   select(SERVICE_MONTH, contains("LAB"), contains("RAD")) %>%
   select(SERVICE_MONTH, contains(hospitals[[1]]), contains(hospitals[[2]]))
 
-```
-
 ## Lab & Rad Baseline Comparison
-```{r lab & rad baseline comparison}
-
 # create table for output
 lab_rad_baseline_comp <- lab_baseline_comp %>%
   left_join(rad_baseline_comp, by = c("FACILITY_MSX"="FACILITY_MSX",
                                      "VERITY_DEPT_DESC_SRC"="VERITY_DEPT_DESC_SRC"))
+
+return(list(
+      lab_rad_baseline_comp = lab_rad_baseline_comp,
+      lab_rad_demand = lab_rad_demand,
+      lab_rad_output = lab_rad_output
+    ))
+
+  })
+  
+  
+  
+    # Combine outputs from all simulations
+  lab_rad_output <- bind_rows(lapply(outputs_list, `[[`, "lab_rad_output")) %>%
+    group_by(SERVICE_MONTH) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+
+  lab_rad_baseline_comp <- bind_rows(lapply(outputs_list, `[[`, "lab_rad_baseline_comp")) %>%
+    group_by(FACILITY_MSX, VERITY_DEPT_DESC_SRC) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+
+  lab_rad_demand <- bind_rows(lapply(outputs_list, `[[`, "lab_rad_demand")) %>%
+    group_by(FACILITY_MSX, SERVICE_MONTH, SERVICE_DATE, CPT_HCPCS_C, DESCRIPTION_SHORT, CATEGORY, DATASET) %>%
+    summarise(DEMAND = mean(DEMAND, na.rm = TRUE), .groups = "drop")
+
+  rm(outputs_list)
+  return(list(
+      lab_rad_baseline_comp = lab_rad_baseline_comp,
+      lab_rad_demand = lab_rad_demand,
+      lab_rad_output = lab_rad_output
+    ))
+  
+  
+  
+}
 ```

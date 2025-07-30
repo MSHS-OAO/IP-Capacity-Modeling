@@ -1,0 +1,40 @@
+```{r scenario data}
+
+baseline <- tbl(con_prod, "IPCAP_PROCESSED_DATA") %>% collect()
+
+scenario_generator_location_swap <- function(hospitals, services, percentage = 0.9) {
+
+
+  scenario <- baseline %>%
+    mutate(
+      SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
+      SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
+      FACILITY_MSX = case_when(
+        FACILITY_MSX == 'STL' ~ 'MSM',
+        FACILITY_MSX == 'RVT' ~ 'MSW',
+        FACILITY_MSX == 'BIB' ~ 'MSB',
+        FACILITY_MSX == 'BIP' ~ 'MSBI',
+        TRUE ~ FACILITY_MSX
+      )
+    )
+
+  combo_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]] &
+                             scenario$VERITY_DEPT_DESC_SRC == services[[2]])
+
+  combo_2_indexes <- which(scenario$FACILITY_MSX == hospitals[[2]] &
+                             scenario$VERITY_DEPT_DESC_SRC == services[[1]])
+
+  combo_1_sampled_indexes <- sample(combo_1_indexes, size = floor(length(combo_1_indexes) * percentage))
+  combo_2_sampled_indexes <- sample(combo_2_indexes, size = floor(length(combo_2_indexes) * percentage))
+
+  scenario %>%
+    mutate(FACILITY_MSX = case_when(
+      row_number() %in% combo_1_sampled_indexes ~ hospitals[[2]],  # MSM → MSH
+      row_number() %in% combo_2_sampled_indexes ~ hospitals[[1]],  # MSH → MSM
+      TRUE ~ FACILITY_MSX
+    ))
+}
+
+
+
+```

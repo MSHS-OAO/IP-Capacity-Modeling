@@ -9,7 +9,7 @@ date: "`r Sys.Date()`"
 ####
 
 
-ip_utilization_model <- function(generator,n_simulations, hospitals, services, percentage = 0.9)
+ip_utilization_model <- function(generator,n_simulations, hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
 {
   
 
@@ -61,13 +61,10 @@ datasets_processed <- list(
         FACILITY_MSX == 'BIB' ~ 'MSB',
         FACILITY_MSX == 'BIP' ~ 'MSBI',
         TRUE ~ FACILITY_MSX)),
-  "scenario" = generator(hospitals, services, percentage = percentage)
+  "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
   )
 
 ## IP Demand & Utilization
-
-
-
 # get billing descripions for IP categories
 ip_mapping <- tbl(con_prod, "IPCAP_BILLING_CAT_DESC") %>%
   filter(CATEGORY == "IP") %>%
@@ -165,7 +162,7 @@ ip_utilization_output <- ip_comparison_total %>%
                               AVG_PERCENT_90_SCENARIO,
                               AVG_PERCENT_95_BASELINE,
                               AVG_PERCENT_95_SCENARIO)) %>%
-  select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]]))  
+  select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]]))
 
 
     return(list(

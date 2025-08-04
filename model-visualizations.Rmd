@@ -3,17 +3,30 @@ title: "model-visualizations"
 output: html_document
 date: "`r Sys.Date()`"
 ---
+```{r}
+# set knitr options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE,
+                      fig.width = 17, fig.height = 10)
+```
+
 # Ip Demand
 ## Bed Charges by Hospital Over Time
 ```{r hosp bed charges trend}
 
 # trend bed charges (total) over time
-run_rate <- datasets_processed[["baseline"]] %>%
+run_rate <- baseline %>%
   filter(BILLING_CAT_DESC == 'BED CHARGES') %>%
   group_by(FACILITY_MSX, SERVICE_DATE) %>%
   summarise(count = n()) %>%
   collect() %>%
-  mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, "%Y%m%d"),
+         FACILITY_MSX = case_when(
+           FACILITY_MSX == 'STL' ~ 'MSM',
+           FACILITY_MSX == 'RVT' ~ 'MSW',
+           FACILITY_MSX == 'BIB' ~ 'MSB',
+           FACILITY_MSX == 'BIP' ~ 'MSBI',
+           TRUE ~ FACILITY_MSX))
 
 ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = FACILITY_MSX)) +
   geom_smooth(se = FALSE, method = "loess", span = 0.05, linewidth = 1.2, alpha = 0.9) +

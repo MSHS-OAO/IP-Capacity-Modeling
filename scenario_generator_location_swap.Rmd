@@ -1,10 +1,16 @@
+---
+title: "scenario_generator_location_swap"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
 ```{r scenario data}
 
 baseline <- tbl(con_prod, "IPCAP_PROCESSED_DATA") %>% collect()
 
-scenario_generator_location_swap <- function(hospitals, services, percentage = 0.9) {
+scenario_generator_location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
 
-
+  # scenario data staged as replica of baseline
   scenario <- baseline %>%
     mutate(
       SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
@@ -17,22 +23,58 @@ scenario_generator_location_swap <- function(hospitals, services, percentage = 0
         TRUE ~ FACILITY_MSX
       )
     )
+  
+  # identify row indexes where patient is at hospial 1 and is in service line 2
+  combo_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]]&
+                             scenario$VERITY_DIV_DESC_SRC %in% services[[2]]&
+                             scenario$CATEGORY == "IP")
 
-  combo_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]] &
-                             scenario$VERITY_DEPT_DESC_SRC == services[[2]])
+  # identfy row indexes where patient is at hospial 2 and is in service line 1
+  combo_2_indexes <- which(scenario$FACILITY_MSX == hospitals[[2]]&
+                           scenario$VERITY_DIV_DESC_SRC %in% services[[1]]&
+                           scenario$CATEGORY == "IP")
 
-  combo_2_indexes <- which(scenario$FACILITY_MSX == hospitals[[2]] &
-                             scenario$VERITY_DEPT_DESC_SRC == services[[1]])
+  # sample the row indexes of combo 1 * the percentage that will move from hosp1 to hosp2
+  combo_1_sampled_indexes <- sample(combo_1_indexes, size = floor(length(combo_1_indexes) * percentage_to_hosp2))
+  # sample the row indexes of combo 1 * the percentage that will move from hosp2 to hosp1
+  combo_2_sampled_indexes <- sample(combo_2_indexes, size = floor(length(combo_2_indexes) * percentage_to_hosp1))
+  
+  sample_rows <- list(
+    combo_2_sampled_indexes,
+    combo_1_sampled_indexes)
 
-  combo_1_sampled_indexes <- sample(combo_1_indexes, size = floor(length(combo_1_indexes) * percentage))
-  combo_2_sampled_indexes <- sample(combo_2_indexes, size = floor(length(combo_2_indexes) * percentage))
-
-  scenario %>%
+  scenario <- scenario %>%
     mutate(FACILITY_MSX = case_when(
       row_number() %in% combo_1_sampled_indexes ~ hospitals[[2]],  # MSM → MSH
       row_number() %in% combo_2_sampled_indexes ~ hospitals[[1]],  # MSH → MSM
-      TRUE ~ FACILITY_MSX
-    ))
+      TRUE ~ FACILITY_MSX))
+  
+  new_demand <- data.frame()
+  for (hosp in 1:length(reroute_hosp)){
+    reroute_data <- scenario %>%
+      filter(row_number() %in% sample_rows[[hosp]]) 
+    
+    # normalize percentages to 100
+    new_service_group[[hosp]] <- new_service_group[[hosp]]/sum(new_service_group[[hosp]])
+    # get ideal row count of each service group
+    counts <- round(nrow(reroute_data) * new_service_group[[hosp]])
+    remainder <- nrow(reroute_data) - sum(counts)
+    max_service <- names(which.max(counts))
+    counts[max_service] <- counts[max_service] + remainder
+    
+    new_service <- sample(unlist(mapply(rep, names(counts), counts))) 
+    
+    reroute_data$SERVICE_GROUP <- new_service
+    
+    new_demand <- rbind(new_demand, reroute_data)
+  }
+  
+  # remove original routing of patients and replace with rerouted data
+  remove_rows <- unique(c(combo_1_sampled_indexes, combo_2_sampled_indexes))
+  scenario <- scenario[-remove_rows,] %>%
+    rbind(new_demand)
+  
+  return(scenario)
 }
 
 

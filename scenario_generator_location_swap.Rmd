@@ -6,7 +6,8 @@ date: "`r Sys.Date()`"
 
 ```{r scenario data}
 
-baseline <- tbl(con_prod, "IPCAP_PROCESSED_DATA") %>% collect()
+baseline <- tbl(con_prod, "IPCAP_PROCESSED_DATA") %>% 
+  filter(CATEGORY == "IP") %>% collect()
 
 scenario_generator_location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
 

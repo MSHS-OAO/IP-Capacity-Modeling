@@ -1,5 +1,18 @@
 SELECT
   job_name,
+  enabled,
+  state,
+  repeat_interval,
+  last_start_date,
+  next_run_date
+FROM
+  user_scheduler_jobs
+WHERE
+  job_name in ('REFRESH_IPCAP_WEEKLY',
+               'REFRESH_IPCAP_BEDCHARGES_WEEKLY');
+
+SELECT
+  job_name,
   status,
   log_date,
   run_duration,
@@ -7,7 +20,7 @@ SELECT
 FROM
   user_scheduler_job_run_details
 WHERE
-  job_name IN ('REFRESH_IPCAP_WEEKLY',
-               'REFRESH_IPCAP_BEDCHARGES')
+  job_name in ('REFRESH_IPCAP_WEEKLY',
+               'REFRESH_IPCAP_BEDCHARGES_WEEKLY');
 ORDER BY
   log_date DESC;

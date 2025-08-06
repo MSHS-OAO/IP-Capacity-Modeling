@@ -102,28 +102,3 @@ BEGIN
     comments        => 'Refreshes IPCAP_PROCESSED_DATA every Wednesday at 1:00 AM'
   );
 END;
-
-SELECT
-  job_name,
-  enabled,
-  state,
-  repeat_interval,
-  last_start_date,
-  next_run_date
-FROM
-  user_scheduler_jobs
-WHERE
-  job_name = 'REFRESH_IPCAP_WEEKLY';
-
-SELECT
-  job_name,
-  status,
-  log_date,
-  run_duration,
-  additional_info
-FROM
-  user_scheduler_job_run_details
-WHERE
-  job_name = 'REFRESH_IPCAP_WEEKLY'
-ORDER BY
-  log_date DESC;

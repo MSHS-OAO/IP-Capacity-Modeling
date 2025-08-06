@@ -52,24 +52,28 @@ services <- list(
 
 # percentage of service line moving from hospital n
 percentage_to_hosp1 = 1
-percentage_to_hosp2 = .7
+percentage_to_hosp2 = 1
 
 # rerouting logic for unit type demand 
 reroute_hosp <- list(
   "MSH", 
   "MSM"
   )
+
+# service group(s) from hospital i that need to be rerouted
 reroute_service_group <- list(
-  c("Critical Care", "Med Surg"),
-  "Heart"
+  "Heart",
+  c("Critical Care", "Med Surg")
   )
-new_service_group <- list(
+
+# how the rerouted service group should be distributed at destination hospital
+reroute_service_group_percent <- list(
+  c("Med Surg" = 0.80,
+    "Critical Care" = 0.20),
   c("Heart" = 0.33,
     "Critical Care" = 0.23,
     "Medicine" = 0.17,
-    "Med Surg" = 0.16),
-  c("Med Surg" = 0.80,
-    "Critical Care" = 0.20)
+    "Med Surg" = 0.16)
   )
 
 # Render Models ----------------------------------------------------------------

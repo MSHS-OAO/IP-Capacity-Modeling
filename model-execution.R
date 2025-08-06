@@ -52,7 +52,7 @@ services <- list(
 
 # percentage of service line moving from hospital n
 percentage_to_hosp1 = 1
-percentage_to_hosp2 = 1
+percentage_to_hosp2 = .7
 
 # rerouting logic for unit type demand 
 reroute_hosp <- list(
@@ -65,11 +65,11 @@ reroute_service_group <- list(
   )
 new_service_group <- list(
   c("Heart" = 0.33,
-       "Critical Care" = 0.23,
-       "Medicine" = 0.17,
-       "Med Surg" = 0.16),
+    "Critical Care" = 0.23,
+    "Medicine" = 0.17,
+    "Med Surg" = 0.16),
   c("Med Surg" = 0.80,
-       "Critical Care" = 0.20)
+    "Critical Care" = 0.20)
   )
 
 # Render Models ----------------------------------------------------------------
@@ -128,24 +128,6 @@ for (i in 1:length(utilizations)) {
   add_to_wb(df = utilizations[[i]],
             sheetname = names(utilizations[i]))
 }
-# add sheet with IP Utilization Output
-#add_to_wb(df = ip_utilization_output,
-#          sheetname = "IP Utilization Comparison")
-## add sheet with daily IP Stats
-#add_to_wb(df = ip_comparison_daily,
-#          sheetname = "IP Stats Daily",
-#          add_filter = TRUE)
-# # add sheet with daily Lab & Rad Stats
-# add_to_wb(df = lab_rad_output,
-#           sheetname = "LAB & RAD Demand")
-# # add sheet with avg charges per patient
-# add_to_wb(df = lab_rad_baseline_comp,
-#           sheetname = "LAB & RAD Patient Charges",
-#           add_filter = TRUE)
-# # add sheet with daily Lab & Rad Stats
-# add_to_wb(df = lab_rad_demand,
-#           sheetname = "LAB & RAD Daily",
-#           add_filter = TRUE)
 
 saveWorkbook(wb, 
              file = paste0(cap_dir, "Model Outputs/Workbooks/",
@@ -153,7 +135,6 @@ saveWorkbook(wb,
                            hospitals[[2]], services[[2]],"_",
                            Sys.Date(), ".xlsx"),
              overwrite = TRUE )
-
 
 rm(ip_utilization_output,ip_comparison_total,ip_comparison_daily, ip_comparison_monthly,
    lab_rad_output,lab_rad_baseline_comp,lab_rad_demand,results,lab_results)

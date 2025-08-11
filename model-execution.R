@@ -30,11 +30,6 @@ source("excel_add_to_wb.R")
 mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
                  "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
 
-# set knitr options
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
-                      message = FALSE,
-                      fig.width = 17, fig.height = 10)
-
 # Scenario Parameters ----------------------------------------------------------
 num_days <- as.numeric(difftime(as.Date("2024-12-31"), as.Date("2024-06-01"), units = "days")) + 1
 
@@ -50,36 +45,19 @@ services <- list(
   "VASCULAR SURGERY"
 )
 
-# percentage of service line moving from hospital n
-percentage_to_hosp1 = 1
-percentage_to_hosp2 = 1
-
-# rerouting logic for unit type demand 
-reroute_hosp <- list(
-  "MSH", 
-  "MSM"
-  )
-
-# service group(s) from hospital i that need to be rerouted
-reroute_service_group <- list(
-  "Heart",
-  c("Critical Care", "Med Surg")
-  )
-
 # how the rerouted service group should be distributed at destination hospital
 reroute_service_group_percent <- list(
   c("Med Surg" = 0.80,
     "Critical Care" = 0.20),
-  c("Heart" = 0.33,
-    "Critical Care" = 0.23,
-    "Medicine" = 0.17,
-    "Med Surg" = 0.16)
+  c("Heart" = 0.65,
+    "Critical Care" = 0.35)
   )
 
-# Render Models ----------------------------------------------------------------
-# # execute lab and radiology script
-# render("model-lab-rad.Rmd")
+# percentage of service line moving from hospital n
+percentage_to_hosp1 = 1
+percentage_to_hosp2 = 1
 
+# Render Models ----------------------------------------------------------------
 #execute script for scenario generator
 render("scenario_generator_location_swap.Rmd")
 
@@ -106,20 +84,6 @@ ip_comparison_monthly = results$ip_comparison_monthly
 list_name <- paste0(hospitals[[1]], percentage_to_hosp2 * 100, " - ",
                     hospitals[[2]], percentage_to_hosp1 * 100)
 utilizations[[list_name]] <- ip_utilization_output
-
-# # run code for lab_rad
-# lab_results <- lab_rad_model (
-#   generator = scenario_generator_location_swap,
-#   n_simulations = 1,
-#   hospitals = hospitals, 
-#   services = services, 
-#   percentage = 0.5
-# )
-# 
-# # unpack lab from lab_results
-# lab_rad_baseline_comp = lab_results$lab_rad_baseline_comp
-# lab_rad_demand = lab_results$lab_rad_demand
-# lab_rad_output = lab_results$lab_rad_output
 
 # # execute visualization script
 # render("model-visualizations.Rmd")

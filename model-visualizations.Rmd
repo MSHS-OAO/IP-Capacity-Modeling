@@ -62,6 +62,7 @@ total_utilization <- ip_comparison_daily %>%
 
 ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset)) +
   geom_smooth(method = "loess", se = FALSE, span = 0.06, linewidth = 1) +
+  geom_hline(yintercept = .85, color = "black", linetype = "solid", linewidth = 0.7) +
   facet_wrap(~ FACILITY_MSX) +
   scale_y_continuous(labels = scales::percent) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
@@ -108,7 +109,7 @@ results_long <- ip_comparison_monthly %>%
 # Plot
 ggplot(results_long, aes(x = SERVICE_MONTH, y = Utilization, fill = Scenario)) +
   geom_bar(stat = "identity", position = "dodge") +
-  geom_hline(yintercept = .95, color = "black", linetype = "solid", linewidth = 0.7) +
+  geom_hline(yintercept = .85, color = "black", linetype = "solid", linewidth = 0.7) +
   scale_y_continuous(limits = c(0, 1.5), labels = scales::percent) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
   scale_fill_manual(values = mshs_colors) + 

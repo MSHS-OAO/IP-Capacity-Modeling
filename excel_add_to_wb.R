@@ -42,7 +42,7 @@ add_to_wb <- function(df, sheetname, add_filter = FALSE) {
     writeData(wb, sheetname, x = "Avg. Bed Utilization", startRow = 2, startCol = 5 + ((i-1)*9))
     mergeCells(wb, sheetname, rows = 2, cols = (5 + ((i-1)*9)):(5 + ((i-1)*9) + 1))
     
-    writeData(wb, sheetname, x = "Days over 90%", startRow = 2, startCol = 7 + ((i-1)*9))
+    writeData(wb, sheetname, x = "Days over 85%", startRow = 2, startCol = 7 + ((i-1)*9))
     mergeCells(wb, sheetname, rows = 2, cols = (7 + ((i-1)*9)):(7 + ((i-1)*9) + 1))
     
     writeData(wb, sheetname, x = "Days over 95%", startRow = 2, startCol = 9 + ((i-1)*9))

@@ -37,13 +37,6 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
     "hosp_1_sampled_indexes" = sample(hosp_1_indexes, size = floor(length(hosp_1_indexes) * percentage_to_hosp2)),
     "hosp_2_sampled_indexes" = sample(hosp_2_indexes, size = floor(length(hosp_2_indexes) * percentage_to_hosp1)))
   
-  # rows to remove
-  rows_to_remove <- 
-    which((seq_len(nrow(scenario)) %in% sample_rows[[1]] & 
-            scenario$SERVICE_GROUP %in% reroute_service_group[[1]]) |
-          (seq_len(nrow(scenario)) %in% sample_rows[[2]] &
-            scenario$SERVICE_GROUP %in% reroute_service_group[[2]]))
-  
   # reset the FACILITY of the scenario patient encounters to their new FACILITY
   scenario <- scenario %>%
     mutate(FACILITY_MSX = case_when(
@@ -54,13 +47,12 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
   # create a df for new demand that has been rerouted
   new_demand <- data.frame()
   # loop through each hospital and reroute the demand
-  for (hosp in 1:length(reroute_hosp)){
+  for (hosp in 1:length(hospitals)){
     
-    # get sample rows that are also getting rerouted
-    reroute_data <- scenario[sample_rows[[hosp]],] %>%
-      filter(SERVICE_GROUP %in% reroute_service_group[[hosp]])
+    # get sample rows of hospital i that are also getting rerouted
+    reroute_data <- scenario[sample_rows[[hosp]],] 
     
-    # normalize rerouting percentages to 100
+    # normalize rerouting percentages to 100 if needed
     reroute_service_group_percent[[hosp]] <- 
       reroute_service_group_percent[[hosp]]/sum(reroute_service_group_percent[[hosp]])
     
@@ -82,7 +74,7 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
   
   # remove original routing of patients and replace with rerouted data
   scenario <- scenario %>%
-    filter(!(row_number() %in% rows_to_remove)) %>%
+    filter(!(row_number() %in% unlist(sample_rows))) %>%
     rbind(new_demand)
   
   return(scenario)

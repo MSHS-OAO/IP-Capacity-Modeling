@@ -24,6 +24,7 @@ BEGIN
    service_group AS (
        SELECT *
        FROM DASHBD_USER.CLARITY_DEP_REF
+       WHERE EXTERNAL_NAME not in ('MSW MAIN 11NU', 'MSW Main 12A (L&D)')
    ),
    cpt AS (
        SELECT CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT

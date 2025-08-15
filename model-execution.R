@@ -53,43 +53,70 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.35)
   )
 
-# percentage of service line moving from hospital n
-percentage_to_hosp1 = 1
-percentage_to_hosp2 = 1
 
 # Render Models ----------------------------------------------------------------
+
 #execute script for scenario generator
 render("scenario_generator_location_swap.Rmd")
 
 # execute ip utilziation script
 render("model-ip-utilization.Rmd")
 
+# percentage of service line moving from hospital n
+percentage_to_hosp1_list <- c(1, 0.8, 0.5)
+percentage_to_hosp2_list <- c(1, 0.6, 0.3)
+
+# specify num of simulations
+n_simulations = 1
+
 # run code for IP_Utilization
-results <- ip_utilization_model (
-  generator = scenario_generator_location_swap,
-  n_simulations = 1,
-  hospitals = hospitals, 
-  services = services, 
-  percentage_to_hosp1 = percentage_to_hosp1,
-  percentage_to_hosp2 = percentage_to_hosp2
-)
+utilizations <- list()
 
-# Unpack values from IP result list
-ip_utilization_output = results$ip_utilization_output
-ip_comparison_total = results$ip_comparison_total
-ip_comparison_daily = results$ip_comparison_daily
-ip_comparison_monthly = results$ip_comparison_monthly
+for (i in seq_along(percentage_to_hosp1_list)) {
+  percentage_to_hosp1 <- percentage_to_hosp1_list[i]
+  percentage_to_hosp2 <- percentage_to_hosp2_list[i]
+  
+  results <- ip_utilization_model (
+    generator = scenario_generator_location_swap,
+    n_simulations = 1,
+    hospitals = hospitals, 
+    services = services, 
+    percentage_to_hosp1 = percentage_to_hosp1,
+    percentage_to_hosp2 = percentage_to_hosp2
+  )
+  
+  # Unpack values from IP result list
+  ip_utilization_output = results$ip_utilization_output
+  ip_comparison_total = results$ip_comparison_total
+  ip_comparison_daily = results$ip_comparison_daily
+  ip_comparison_monthly = results$ip_comparison_monthly
+  
+  # save utilizations outputs in list to loop through for workbook saving
+  list_name <- paste0(hospitals[[1]], percentage_to_hosp2 * 100, " - ",
+                      hospitals[[2]], percentage_to_hosp1 * 100)
+  utilizations[[list_name]] <- ip_utilization_output
+  
+  # # visualization script
+  # html_output_path <- file.path(cap_dir, "Model Outputs/Workbooks",
+  #                               paste0("model-visualizations-", 
+  #                                      hospitals[[1]], services[[1]], "-",
+  #                                      hospitals[[2]], services[[2]], "_",
+  #                                      percentage_to_hosp1 * 100, "-",
+  #                                      percentage_to_hosp2 * 100, "_",
+  #                                      Sys.Date(), ".html"))
+  # render(input = "model-visualizations.Rmd",
+  #        output_file = html_output_path)
+}
 
-# save utilizations outputs in list to loop through for workbook saving
-list_name <- paste0(hospitals[[1]], percentage_to_hosp2 * 100, " - ",
-                    hospitals[[2]], percentage_to_hosp1 * 100)
-utilizations[[list_name]] <- ip_utilization_output
+
 
 # # execute visualization script
 # render("model-visualizations.Rmd")
 
 # Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs
+
+
 wb <- createWorkbook()
 
 for (i in 1:length(utilizations)) {

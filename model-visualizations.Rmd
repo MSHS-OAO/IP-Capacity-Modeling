@@ -161,63 +161,63 @@ theme(
 ## Daily Lab Demand
 ```{r lab daily trend}
 
-# data
-results_lab <- lab_rad_demand %>%
-  filter(FACILITY_MSX %in% hospitals,
-         CATEGORY == "LAB") %>%
-  group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
-  summarise(DEMAND = sum(DEMAND)) %>%
-  mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
-
-# visualization
-ggplot(results_lab, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
-  geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
-  facet_grid(~ FACILITY_MSX, scales = "free_y") +
-  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-  scale_color_manual(values = mshs_colors) +
-  labs(
-    title = "Baseline vs. Scenario Lab Demand",
-    x = "Date",
-    y = "Demand",
-    color = "Dataset"
-  ) +
-  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
-        axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12),
-        strip.text = element_text(size = 14, face = "bold"))
+# # data
+# results_lab <- lab_rad_demand %>%
+#   filter(FACILITY_MSX %in% hospitals,
+#          CATEGORY == "LAB") %>%
+#   group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
+#   summarise(DEMAND = sum(DEMAND)) %>%
+#   mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+# 
+# # visualization
+# ggplot(results_lab, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
+#   geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
+#   facet_grid(~ FACILITY_MSX, scales = "free_y") +
+#   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+#   scale_color_manual(values = mshs_colors) +
+#   labs(
+#     title = "Baseline vs. Scenario Lab Demand",
+#     x = "Date",
+#     y = "Demand",
+#     color = "Dataset"
+#   ) +
+#   theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+#         axis.title = element_text(size = 14),
+#         axis.text = element_text(size = 12),
+#         axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.title = element_text(size = 14),
+#         legend.text = element_text(size = 12),
+#         strip.text = element_text(size = 14, face = "bold"))
 ```
 
 ## Daily Radiology Demand
 ```{r rad daily trend}
 
 # data
-results_rad <- lab_rad_demand %>%
-  filter(FACILITY_MSX %in% hospitals,
-         CATEGORY == "RAD") %>%
-  group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
-  summarise(DEMAND = sum(DEMAND)) %>%
-  mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
-
-# visualization
-ggplot(results_rad, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
-  geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
-  facet_grid(~ FACILITY_MSX, scales = "free_y") +
-  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-  scale_color_manual(values = mshs_colors) +
-  labs(
-    title = "Baseline vs. Scenario Radiology Demand",
-    x = "Date",
-    y = "Demand",
-    color = "Dataset"
-  ) +
-  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
-        axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12),
-        strip.text = element_text(size = 14, face = "bold"))
+# results_rad <- lab_rad_demand %>%
+#   filter(FACILITY_MSX %in% hospitals,
+#          CATEGORY == "RAD") %>%
+#   group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
+#   summarise(DEMAND = sum(DEMAND)) %>%
+#   mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+# 
+# # visualization
+# ggplot(results_rad, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
+#   geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
+#   facet_grid(~ FACILITY_MSX, scales = "free_y") +
+#   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+#   scale_color_manual(values = mshs_colors) +
+#   labs(
+#     title = "Baseline vs. Scenario Radiology Demand",
+#     x = "Date",
+#     y = "Demand",
+#     color = "Dataset"
+#   ) +
+#   theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+#         axis.title = element_text(size = 14),
+#         axis.text = element_text(size = 12),
+#         axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.title = element_text(size = 14),
+#         legend.text = element_text(size = 12),
+#         strip.text = element_text(size = 14, face = "bold"))
 ```

@@ -63,22 +63,23 @@ render("scenario_generator_location_swap.Rmd")
 render("model-ip-utilization.Rmd")
 
 # percentage of service line moving from hospital n
-percentage_to_hosp1_list <- c(1, 0.8, 0.5)
-percentage_to_hosp2_list <- c(1, 0.6, 0.3)
+percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
+percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
 
 # specify num of simulations
-n_simulations = 1
+n_simulations = 5
 
 # run code for IP_Utilization
 utilizations <- list()
 
 for (i in seq_along(percentage_to_hosp1_list)) {
+  print(paste0("Running scenario ", i, "/", length(percentage_to_hosp1_list)))
   percentage_to_hosp1 <- percentage_to_hosp1_list[i]
   percentage_to_hosp2 <- percentage_to_hosp2_list[i]
   
   results <- ip_utilization_model (
     generator = scenario_generator_location_swap,
-    n_simulations = 1,
+    n_simulations = n_simulations,
     hospitals = hospitals, 
     services = services, 
     percentage_to_hosp1 = percentage_to_hosp1,
@@ -96,29 +97,23 @@ for (i in seq_along(percentage_to_hosp1_list)) {
                       hospitals[[2]], percentage_to_hosp1 * 100)
   utilizations[[list_name]] <- ip_utilization_output
   
-  # # visualization script
-  # html_output_path <- file.path(cap_dir, "Model Outputs/Workbooks",
-  #                               paste0("model-visualizations-", 
-  #                                      hospitals[[1]], services[[1]], "-",
-  #                                      hospitals[[2]], services[[2]], "_",
-  #                                      percentage_to_hosp1 * 100, "-",
-  #                                      percentage_to_hosp2 * 100, "_",
-  #                                      Sys.Date(), ".html"))
-  # render(input = "model-visualizations.Rmd",
-  #        output_file = html_output_path)
+  # visualization script
+  html_output_path <- paste0(cap_dir, "Model Outputs/Visualizations/",
+                              "model-visualizations-", 
+                              hospitals[[1]], services[[1]], "-",
+                              hospitals[[2]], services[[2]], "_",
+                              percentage_to_hosp1 * 100, "-",
+                              percentage_to_hosp2 * 100, "_",
+                              Sys.Date(), ".html")
+  render(input = "model-visualizations.Rmd",
+         output_file = html_output_path)
 }
-
-
-
-# # execute visualization script
-# render("model-visualizations.Rmd")
 
 # Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs
-
-
 wb <- createWorkbook()
 
+# create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {
   add_to_wb(df = utilizations[[i]],
             sheetname = names(utilizations[i]))

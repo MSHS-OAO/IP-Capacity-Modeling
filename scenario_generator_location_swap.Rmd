@@ -6,12 +6,7 @@ date: "`r Sys.Date()`"
 
 ```{r scenario data}
 
-baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect()
-
-scenario_generator_location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
-
-  # scenario data staged as replica of baseline
-  scenario <- baseline %>%
+baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
     mutate(
       SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
       SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
@@ -23,6 +18,11 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
         TRUE ~ FACILITY_MSX
       )
     )
+
+scenario_generator_location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
+
+  # scenario data staged as replica of baseline
+  scenario <- baseline 
   
   # identify row indexes where patient is at hospial 1 and is in service line 2
   hosp_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]]&

@@ -24,7 +24,7 @@ cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity
 # list for all utilizations
 utilizations <- list()
 # load excel workbook function
-source("excel_add_to_wb.R")
+source("functions/excel_add_to_wb.R")
 
 # Sinai color scheme
 mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
@@ -53,13 +53,28 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.35)
 )
 
+# Load Baseline Data
+
+baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
+  mutate(
+    SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
+    SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == 'STL' ~ 'MSM',
+      FACILITY_MSX == 'RVT' ~ 'MSW',
+      FACILITY_MSX == 'BIB' ~ 'MSB',
+      FACILITY_MSX == 'BIP' ~ 'MSBI',
+      TRUE ~ FACILITY_MSX
+    )
+  )
+
 # Render Models ----------------------------------------------------------------
 
 #execute script for scenario generator
-render("scenario_generator_location_swap.Rmd")
+source("functions/location_swap.R")
 
 # execute ip utilziation script
-render("model-ip-utilization.Rmd")
+source("model/model-ip-utilization.R")
 
 # percentage of service line moving from hospital n
 percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
@@ -104,7 +119,7 @@ for (i in seq_along(percentage_to_hosp1_list)) {
                               percentage_to_hosp1 * 100, "-",
                               percentage_to_hosp2 * 100, "_",
                               Sys.Date(), ".html")
-  render(input = "model-visualizations.Rmd",
+  render(input = "model/model-visualizations.Rmd",
          output_file = html_output_path)
 }
 

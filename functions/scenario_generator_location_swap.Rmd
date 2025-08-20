@@ -26,13 +26,11 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
   
   # identify row indexes where patient is at hospial 1 and is in service line 2
   hosp_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]]&
-                            scenario$VERITY_DIV_DESC_SRC %in% services[[2]]&
-                            !(scenario$ADMIT_TYPE_DESC_SRC %in% c("EMERGENCY")))
+                            scenario$VERITY_DIV_DESC_SRC %in% services[[2]])
 
   # identify row indexes where patient is at hospial 2 and is in service line 1
   hosp_2_indexes <- which(scenario$FACILITY_MSX == hospitals[[2]]&
-                            scenario$VERITY_DIV_DESC_SRC %in% services[[1]]&
-                            !(scenario$ADMIT_TYPE_DESC_SRC %in% c("EMERGENCY")))
+                            scenario$VERITY_DIV_DESC_SRC %in% services[[1]])
   
   # take percent sample of full list of scenario indedxes and place index samples in list to prep for loop
   sample_rows <- list(

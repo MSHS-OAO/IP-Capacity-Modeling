@@ -51,8 +51,7 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.20),
   c("Heart" = 0.65,
     "Critical Care" = 0.35)
-  )
-
+)
 
 # Render Models ----------------------------------------------------------------
 

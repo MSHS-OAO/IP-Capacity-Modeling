@@ -6,7 +6,7 @@ date: "`r Sys.Date()`"
 ```{r}
 # set knitr options
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
-                      message = FALSE, fig.width = 8, fig.height = 5)
+                      message = FALSE, fig.width = 9, fig.height = 5)
 ```
 
 # Ip Demand

@@ -18,7 +18,7 @@ BEGIN
    charge AS (
        SELECT *
        FROM OE_CHARGE_DETAIL
-       WHERE PRIM_ENC_CSN_ID IN (SELECT DISTINCT EPIC_CSN FROM ip) AND
+       WHERE HSP_ACCOUNT_ID IN (SELECT DISTINCT ENCOUNTER_NO FROM ip) AND
              SERVICE_DATE BETWEEN 20240601 AND 20241231
    ),
    service_group AS (
@@ -80,7 +80,7 @@ BEGIN
               service_group.RPT_GRP_TWENTYTHREE
        FROM ip
        LEFT JOIN charge
-         ON ip.EPIC_CSN = charge.PRIM_ENC_CSN_ID
+         ON ip.ENCOUNTER_NO = charge.HSP_ACCOUNT_ID
        LEFT JOIN service_group
          ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
        LEFT JOIN cpt

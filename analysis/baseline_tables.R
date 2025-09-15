@@ -82,6 +82,7 @@ baseline_avg <- baseline_daily_avg %>%
 
 # get avg unit los
 avg_unit_los <- baseline %>%
+  filter(LOS_NO_SRC < 100) %>%
   group_by(ENCOUNTER_NO, EXTERNAL_NAME) %>%
   summarise(UNIT_LOS = sum(QUANTITY, na.rm = TRUE)) %>%
   group_by(EXTERNAL_NAME) %>%
@@ -89,8 +90,10 @@ avg_unit_los <- baseline %>%
 
 # get avg total los and expected LOS
 avg_los <- baseline %>%
+  filter(LOS_NO_SRC < 100) %>%
   group_by(EXTERNAL_NAME) %>%
-  summarise(AVG_TOTAL_LOS = mean(LOS_NO_SRC),
+  summarise(MED_TOTAL_LOS = median(LOS_NO_SRC),
+            AVG_TOTAL_LOS = mean(LOS_NO_SRC),
             AVG_TOTAL_EXPECTED_LOS = mean(P_AVG_LOS_MSDRG, na.rm = TRUE))
 
 # join all LOS metrics
@@ -137,10 +140,3 @@ baseline_los_admissions_regression <- baseline_los_admissions %>%
 write.xlsx(baseline_los_admissions_regression,
            paste0(cap_dir, "Model Outputs/Baseline Metrics/",
                   "BASELINE_METRICS_", Sys.Date(), ".xlsx"))
-
-
-
-
-check <- baseline %>%
-  mutate(LOS_VAR = LOS_NO_SRC - P_AVG_LOS_MSDRG) %>%
-  summarise(avg_var = mean(LOS_VAR, na.rm = TRUE))

@@ -53,8 +53,18 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.35)
 )
 
-# Load Baseline Data
+# emergency exclusions
+exclusion_hosp1 <- TRUE
+exclusion_hosp2 <- FALSE
 
+# percentage of service line moving from hospital n
+percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
+percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
+
+# specify num of simulations
+n_simulations = 5
+
+# Load Baseline Data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
   mutate(
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
@@ -70,18 +80,12 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 
 # Render Models ----------------------------------------------------------------
 
-#execute script for scenario generator
+#execute script for scenario generator and exclusion criteria
+source("functions/emergency_exclusion.R")
 source("functions/location_swap.R")
 
 # execute ip utilziation script
 source("model/model-ip-utilization.R")
-
-# percentage of service line moving from hospital n
-percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
-percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
-
-# specify num of simulations
-n_simulations = 5
 
 # run code for IP_Utilization
 utilizations <- list()
@@ -92,7 +96,7 @@ for (i in seq_along(percentage_to_hosp1_list)) {
   percentage_to_hosp2 <- percentage_to_hosp2_list[i]
   
   results <- ip_utilization_model (
-    generator = scenario_generator_location_swap,
+    generator = location_swap,
     n_simulations = n_simulations,
     hospitals = hospitals, 
     services = services, 
@@ -126,6 +130,25 @@ for (i in seq_along(percentage_to_hosp1_list)) {
 # Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs
 wb <- createWorkbook()
+
+# create a sheet defining the scenario parameters
+parameters <- data.frame(
+  "Hospital" = c(hospitals[[2]],
+                 hospitals[[1]]),
+  "Service Line" = c(services[[1]],
+                     services[[2]]),
+  "Emergency Exclusion" = c(exclusion_hosp2,
+                            exclusion_hosp1),
+  check.names = FALSE)
+parameters$`Routing Logic` <- reroute_service_group_percent
+
+# create sheet name
+sheet <- addWorksheet(wb, "Parameters")
+
+setColWidths(wb, "Parameters", cols = 1:ncol(parameters), widths = "auto")
+
+# write data to sheet
+writeData(wb, x = parameters, sheet = "Parameters")
 
 # create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {

@@ -12,7 +12,10 @@ date: "`r Sys.Date()`"
 ip_utilization_model <- function(generator,n_simulations, hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
 {
   
-
+  if (percentage_to_hosp1 == 1 &
+      percentage_to_hosp2 == 1) {
+    n_simulations <- 1
+  }
   
   
   # for loop

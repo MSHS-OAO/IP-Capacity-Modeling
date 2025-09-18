@@ -6,8 +6,7 @@ date: "`r Sys.Date()`"
 ```{r}
 # set knitr options
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
-                      message = FALSE,
-                      fig.width = 17, fig.height = 10)
+                      message = FALSE, fig.width = 9, fig.height = 5)
 ```
 
 # Ip Demand
@@ -20,13 +19,7 @@ run_rate <- baseline %>%
   group_by(FACILITY_MSX, SERVICE_DATE) %>%
   summarise(count = n()) %>%
   collect() %>%
-  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, "%Y%m%d"),
-         FACILITY_MSX = case_when(
-           FACILITY_MSX == 'STL' ~ 'MSM',
-           FACILITY_MSX == 'RVT' ~ 'MSW',
-           FACILITY_MSX == 'BIB' ~ 'MSB',
-           FACILITY_MSX == 'BIP' ~ 'MSBI',
-           TRUE ~ FACILITY_MSX))
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, "%Y%m%d"))
 
 ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = FACILITY_MSX)) +
   geom_smooth(se = FALSE, method = "loess", span = 0.05, linewidth = 1.2, alpha = 0.9) +

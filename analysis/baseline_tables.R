@@ -20,7 +20,7 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 # capacity modeling path
 cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
 # get days in baseline
-num_days <- as.numeric(difftime(as.Date("2024-12-31"), as.Date("2024-06-01"), units = "days")) + 1
+num_days <- as.numeric(difftime(as.Date("2025-06-30"), as.Date("2024-06-01"), units = "days")) + 1
 
 # get baseline data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
@@ -56,8 +56,13 @@ bed_cap <- bed_cap_csv %>%
 # compute baseline daily averages
 baseline_daily_avg <- baseline %>%
   filter(!is.na(EXTERNAL_NAME)) %>%
-  group_by(EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP,  SERVICE_MONTH, SERVICE_DATE) %>%
-  summarise(DAILY_DEMAND = sum(QUANTITY, na.rm = TRUE)) %>%
+  group_by(ENCOUNTER_NO, FACILITY_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
+  mutate(BED_CHARGES = case_when(
+    BED_CHARGES > 1 ~ 1,
+    TRUE ~ BED_CHARGES)) %>%
+  group_by(FACILITY_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+  summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop") %>%
   collect() %>%
   left_join(bed_cap, by = c("SERVICE_GROUP" = "SERVICE_GROUP",
                             "SERVICE_MONTH" = "SERVICE_MONTH",
@@ -73,7 +78,7 @@ baseline_daily_avg <- baseline %>%
 
 # compute baseline total averages
 baseline_avg <- baseline_daily_avg %>%
-  group_by(HOSPITAL, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP) %>%
+  group_by(HOSPITAL, EXTERNAL_NAME, SERVICE_GROUP) %>%
   summarise(AVG_DAILY_DEMAND = sum(DAILY_DEMAND)/num_days,
             AVG_BED_CAPACITY = sum(AVG_BED_CAPACITY)/num_days,
             AVG_UTILIZATION = AVG_DAILY_DEMAND/AVG_BED_CAPACITY,
@@ -82,19 +87,22 @@ baseline_avg <- baseline_daily_avg %>%
 
 # get avg unit los
 avg_unit_los <- baseline %>%
-  filter(LOS_NO_SRC < 100) %>%
+  group_by(ENCOUNTER_NO, EXTERNAL_NAME, SERVICE_DATE) %>%
+  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
+  mutate(BED_CHARGES = case_when(
+    BED_CHARGES > 1 ~ 1,
+    TRUE ~ BED_CHARGES)) %>%
   group_by(ENCOUNTER_NO, EXTERNAL_NAME) %>%
-  summarise(UNIT_LOS = sum(QUANTITY, na.rm = TRUE)) %>%
+  summarise(UNIT_LOS = sum(BED_CHARGES)) %>%
   group_by(EXTERNAL_NAME) %>%
   summarise(AVG_UNIT_LOS = mean(UNIT_LOS))
 
 # get avg total los and expected LOS
 avg_los <- baseline %>%
-  filter(LOS_NO_SRC < 100) %>%
+  mutate(LOS_CALC = as.numeric(difftime(DSCH_DT_SRC, ADMIT_DT_SRC, units = "days"))) %>%
   group_by(EXTERNAL_NAME) %>%
-  summarise(MED_TOTAL_LOS = median(LOS_NO_SRC),
-            AVG_TOTAL_LOS = mean(LOS_NO_SRC),
-            AVG_TOTAL_EXPECTED_LOS = mean(P_AVG_LOS_MSDRG, na.rm = TRUE))
+  summarise(MED_TOTAL_LOS = median(LOS_CALC),
+            AVG_TOTAL_LOS = mean(LOS_CALC))
 
 # join all LOS metrics
 baseline_avg_los <- baseline_avg %>%
@@ -122,21 +130,21 @@ admission_dist <- baseline %>%
 baseline_los_admissions <- baseline_avg_los %>%
   left_join(admission_dist, by = c("EXTERNAL_NAME" = "EXTERNAL_NAME"))
 
-# get linear regression slope of bed charges over time
-baseline_regression <- baseline_daily_avg %>%
-  mutate(DATE_NUM = as.numeric(SERVICE_DATE)) %>%
-  group_by(EXTERNAL_NAME) %>%
-  summarise(AVG_BED_CAPACITY = sum(AVG_BED_CAPACITY)/num_days,
-            REGRESSION = coef(lm(DAILY_DEMAND ~ DATE_NUM))[2]) %>%
-  mutate(NORMALIZED_REGRESSION = round(REGRESSION/AVG_BED_CAPACITY, digits = 4),
-         REGRESSION = round(REGRESSION, digits = 4)) %>%
-  select(EXTERNAL_NAME, contains("REGRESSION"))
+# # get linear regression slope of bed charges over time
+# baseline_regression <- baseline_daily_avg %>%
+#   mutate(DATE_NUM = as.numeric(SERVICE_DATE)) %>%
+#   group_by(EXTERNAL_NAME) %>%
+#   summarise(AVG_BED_CAPACITY = sum(AVG_BED_CAPACITY)/num_days,
+#             REGRESSION = coef(lm(DAILY_DEMAND ~ DATE_NUM))[2]) %>%
+#   mutate(NORMALIZED_REGRESSION = round(REGRESSION/AVG_BED_CAPACITY, digits = 4),
+#          REGRESSION = round(REGRESSION, digits = 4)) %>%
+#   select(EXTERNAL_NAME, contains("REGRESSION"))
+# 
+# # join in regression metrics
+# baseline_los_admissions_regression <- baseline_los_admissions %>%
+#   left_join(baseline_regression, by = c("EXTERNAL_NAME" = "EXTERNAL_NAME")) %>%
+#   arrange(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME)
 
-# join in regression metrics
-baseline_los_admissions_regression <- baseline_los_admissions %>%
-  left_join(baseline_regression, by = c("EXTERNAL_NAME" = "EXTERNAL_NAME")) %>%
-  arrange(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME)
-
-write.xlsx(baseline_los_admissions_regression,
+write.xlsx(baseline_los_admissions,
            paste0(cap_dir, "Model Outputs/Baseline Metrics/",
                   "BASELINE_METRICS_", Sys.Date(), ".xlsx"))

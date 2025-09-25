@@ -38,33 +38,21 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
     
     # read in processed data from data refresh script
     datasets_processed <- list(
-      "baseline" = tbl(con_prod, "IPCAP_PROCESSED_DATA") %>%
-        mutate(
-          SERVICE_DATE = TO_DATE(SERVICE_DATE, 'YYYYMMDD'),
-          SERVICE_MONTH = sql("TRUNC(TO_DATE(SERVICE_DATE, 'YYYYMMDD'), 'MM')"),
-          FACILITY_MSX = case_when(
-            FACILITY_MSX == 'STL' ~ 'MSM',
-            FACILITY_MSX == 'RVT' ~ 'MSW',
-            FACILITY_MSX == 'BIB' ~ 'MSB',
-            FACILITY_MSX == 'BIP' ~ 'MSBI',
-            TRUE ~ FACILITY_MSX)),
+      "baseline" = baseline,
       "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
     )
-    
-    ## IP Demand & Utilization
-    # get billing descripions for IP categories
-    ip_mapping <- tbl(con_prod, "IPCAP_BILLING_CAT_DESC") %>%
-      filter(CATEGORY == "IP") %>%
-      collect() %>%
-      pull(BILLING_CAT_DESC)
     
     # filter data down to IP bed charges in desired date range
     ip_utilization <- lapply(datasets_processed, function(df) {
       df %>%
-        filter(!is.na(EXTERNAL_NAME),
-               BILLING_CAT_DESC == ip_mapping) %>%
+        filter(!is.na(EXTERNAL_NAME)) %>%
+        group_by(ENCOUNTER_NO, FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+        summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
+        mutate(BED_CHARGES = case_when(
+          BED_CHARGES > 1 ~ 1,
+          TRUE ~ BED_CHARGES)) %>%
         group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
-        summarise(DAILY_DEMAND = sum(QUANTITY), .groups = "drop") %>%
+        summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop") %>%
         collect() %>%
         left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
                                   "SERVICE_GROUP" = "SERVICE_GROUP",
@@ -122,8 +110,8 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
                 TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
                 TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
                 AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY)) %>%
-      mutate(AVG_DAILY_DEMAND_BASELINE = TOTAL_DEMAND_BASELINE/num_days,
-             AVG_DAILY_DEMAND_SCENARIO = TOTAL_DEMAND_SCENARIO/num_days,
+      mutate(AVG_DAILY_DEMAND_BASELINE = round(TOTAL_DEMAND_BASELINE/num_days,2),
+             AVG_DAILY_DEMAND_SCENARIO = round(TOTAL_DEMAND_SCENARIO/num_days,2),
              AVG_PERCENT_90_BASELINE = TOTAL_90_BASELINE/num_days,
              AVG_PERCENT_90_SCENARIO = TOTAL_90_SCENARIO/num_days,
              AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/num_days,

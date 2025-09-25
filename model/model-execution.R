@@ -31,7 +31,7 @@ mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000",
                  "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
 
 # Scenario Parameters ----------------------------------------------------------
-num_days <- as.numeric(difftime(as.Date("2024-12-31"), as.Date("2024-06-01"), units = "days")) + 1
+num_days <- as.numeric(difftime(as.Date("2025-06-30"), as.Date("2024-06-01"), units = "days")) + 1
 
 # set hospitals in scenario
 hospitals <- list(
@@ -58,11 +58,13 @@ exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- FALSE
 
 # percentage of service line moving from hospital n
-percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
-percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
+#percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
+#percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
+percentage_to_hosp1_list <- c(1, 1)
+percentage_to_hosp2_list <- c(.9, .8)
 
 # specify num of simulations
-n_simulations = 5
+n_simulations = 2
 
 # Load Baseline Data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%

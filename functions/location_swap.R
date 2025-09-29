@@ -1,36 +1,19 @@
----
-title: "scenario_generator_location_swap"
-output: html_document
-date: "`r Sys.Date()`"
----
-
-```{r scenario data}
-
-baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
-    mutate(
-      SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
-      SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-      FACILITY_MSX = case_when(
-        FACILITY_MSX == 'STL' ~ 'MSM',
-        FACILITY_MSX == 'RVT' ~ 'MSW',
-        FACILITY_MSX == 'BIB' ~ 'MSB',
-        FACILITY_MSX == 'BIP' ~ 'MSBI',
-        TRUE ~ FACILITY_MSX
-      )
-    )
-
-scenario_generator_location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
-
+location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
+  
   # scenario data staged as replica of baseline
   scenario <- baseline 
   
   # identify row indexes where patient is at hospial 1 and is in service line 2
-  hosp_1_indexes <- which(scenario$FACILITY_MSX == hospitals[[1]]&
-                             scenario$VERITY_DIV_DESC_SRC %in% services[[2]])
-
+  hosp_1_indexes <- emergency_exclusion(
+    indexes = which(baseline$FACILITY_MSX == hospitals[[1]]&
+                      baseline$VERITY_DIV_DESC_SRC %in% services[[2]]),
+    exclusion = exclusion_hosp1)
+  
   # identify row indexes where patient is at hospial 2 and is in service line 1
-  hosp_2_indexes <- which(scenario$FACILITY_MSX == hospitals[[2]]&
-                           scenario$VERITY_DIV_DESC_SRC %in% services[[1]])
+  hosp_2_indexes <- emergency_exclusion(
+    index = which(baseline$FACILITY_MSX == hospitals[[2]]&
+                    baseline$VERITY_DIV_DESC_SRC %in% services[[1]]),
+    exclusion = exclusion_hosp2)
   
   # take percent sample of full list of scenario indedxes and place index samples in list to prep for loop
   sample_rows <- list(
@@ -79,7 +62,3 @@ scenario_generator_location_swap <- function(hospitals, services, percentage_to_
   
   return(scenario)
 }
-
-
-
-```

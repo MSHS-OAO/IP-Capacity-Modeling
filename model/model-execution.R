@@ -19,7 +19,7 @@ library(rmarkdown)
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 # capacity modeling path
-cap_dir <- "/SharedDrive/deans/Presidents/SixSigma/Project Based/System/Capacity Modeling/"
+cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
 
 # list for all utilizations
 utilizations <- list()
@@ -58,10 +58,8 @@ exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- FALSE
 
 # percentage of service line moving from hospital n
-#percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
-#percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
-percentage_to_hosp1_list <- c(1, 1)
-percentage_to_hosp2_list <- c(.9, .8)
+percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
+percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
 
 # specify num of simulations
 n_simulations = 2

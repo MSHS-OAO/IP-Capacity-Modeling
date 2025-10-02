@@ -29,7 +29,6 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
     EXTERNAL_NAME = trimws(EXTERNAL_NAME),
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
     SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"))
-
 # get bed capacity data
 bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
                           pattern = "\\.csv$", full.names = TRUE)
@@ -106,7 +105,7 @@ baseline_unit_los <- baseline %>%
 
 # get avg total los and expected LOS
 baseline_total_los <- baseline %>%
-  filter(SERVICE_DESC_MSX %in% c("REHABILITATION", "PSYCHIATRY", "CHEMICAL DEPENDENCY"),
+  filter(!(SERVICE_DESC_MSX %in% c("REHABILITATION", "PSYCHIATRY", "CHEMICAL DEPENDENCY")),
          !is.na(VIZ_EX_LOS),
          LOS_NO_SRC < 100) %>% # align with Poppy's AVG LOS metric definition
   group_by(EXTERNAL_NAME) %>%

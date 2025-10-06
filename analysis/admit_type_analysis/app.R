@@ -345,9 +345,9 @@ server <- function(input, output,session) {
       ),
       caption = htmltools::tags$caption("Service Line Distribution", style="text-align:center;")
     ) |> DT::formatRound("AVG Patients/Day", 2)   |>
-      formatStyle(c("Hospital", "Percentage", "AVG Patients/Day"),
+      formatStyle(c("Percentage", "AVG Patients/Day"),
                   backgroundColor = "#E6F8FF", fontWeight = "bold") |>
-      formatStyle(c("Unit Type", "Service Line", "Admit Type"),
+      formatStyle(c("Hospital", "Unit Type", "Service Line", "Admit Type"),
                   backgroundColor = "#f2f3f2", fontWeight = "bold") |>
       formatStyle(
         "AVG Patients/Day",
@@ -415,9 +415,9 @@ server <- function(input, output,session) {
       ),
       caption = htmltools::tags$caption("Surgeon Distribution", style="text-align:center;")
     ) |> DT::formatRound("AVG Patients/Day", 2) |>
-      formatStyle(c("Hospital", "Percentage", "AVG Patients/Day"),
+      formatStyle(c("Percentage", "AVG Patients/Day"),
                   backgroundColor = "#E6F8FF", fontWeight = "bold") |>
-      formatStyle(c("Unit Type", "Service Line", "Admit Type", "Primary Surgeon"),
+      formatStyle(c("Hospital", "Unit Type", "Service Line", "Admit Type", "Primary Surgeon"),
                   backgroundColor = "#f2f3f2", fontWeight = "bold") |>
       formatStyle(
         "AVG Patients/Day",

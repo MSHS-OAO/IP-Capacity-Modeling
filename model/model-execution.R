@@ -23,8 +23,6 @@ cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optim
 
 # list for all utilizations
 utilizations <- list()
-# load excel workbook function
-source("functions/excel_add_to_wb.R")
 
 # Sinai color scheme
 mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
@@ -53,6 +51,9 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.35)
 )
 
+# file with unit capacity adjustments
+unit_capacity_adjustments <- "tisch_cancer_center.csv"
+
 # emergency exclusions
 exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- FALSE
@@ -80,9 +81,11 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 
 # Render Models ----------------------------------------------------------------
 
-#execute script for scenario generator and exclusion criteria
+# load all functions
 source("functions/emergency_exclusion.R")
 source("functions/location_swap.R")
+source("functions/unit_capacity.R")
+source("functions/excel_add_to_wb.R")
 
 # execute ip utilziation script
 source("model/model-ip-utilization.R")

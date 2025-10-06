@@ -13,28 +13,8 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
     
     print(paste("Running simulation #", i))
     
-    # read in bed capacity (tableau)
-    # List all CSV files in the directory
-    bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
-                              pattern = "\\.csv$", full.names = TRUE)
-    bed_cap <- bed_cap_csv %>%
-      map_dfr(~ read_csv(.x, show_col_types = FALSE) %>% mutate(source_file = basename(.x))) %>%
-      rename(HOSPITAL = Location,
-             SERVICE_GROUP = `Service Group`,
-             MEASURE = `Measure Names`,
-             SERVICE_MONTH = `Day of Census Start`) %>%
-      filter(MEASURE == 'Avg Total Beds') %>%
-      mutate(
-        HOSPITAL = case_when(
-          HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
-          HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
-          HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
-          HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
-          HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
-          HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
-        SERVICE_MONTH = mdy(SERVICE_MONTH)) %>%
-      group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH) %>%
-      summarise(AVG_BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
+    # load bed capacity for baseline and scenario
+    bed_cap <- unit_capacity(unit_capacity_adjustments)
     
     # read in processed data from data refresh script
     datasets_processed <- list(
@@ -42,9 +22,14 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
       "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
     )
     
-    # filter data down to IP bed charges in desired date range
-    ip_utilization <- lapply(datasets_processed, function(df) {
-      df %>%
+    # compute daily average utilization and days over 85 and 95 %
+    ip_utilization <- lapply(names(datasets_processed), function(dataset) {
+      
+      # load dataset based on name of list element
+      df <- datasets_processed[[dataset]]
+      
+      # calculat daily averages of bed demand and join bed capacity data
+      df <- df %>%
         filter(!is.na(EXTERNAL_NAME)) %>%
         group_by(ENCOUNTER_NO, FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
         summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
@@ -54,17 +39,36 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
         group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
         summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop") %>%
         collect() %>%
-        left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
-                                  "SERVICE_GROUP" = "SERVICE_GROUP",
-                                  "SERVICE_MONTH" = "SERVICE_MONTH")) %>%
-        mutate(UTILIZATION = DAILY_DEMAND/AVG_BED_CAPACITY,
-               UTILIZATION_85 = case_when(
-                 UTILIZATION > .85 ~ TRUE,
-                 TRUE ~ FALSE),
-               UTILIZATION_95 = case_when(
-                 UTILIZATION > .95 ~ TRUE,
-                 TRUE ~ FALSE))
+      left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
+                                "SERVICE_GROUP" = "SERVICE_GROUP",
+                                "SERVICE_MONTH" = "SERVICE_MONTH")) 
+      
+      # calculate utilization based on baseline/scenario bed capacity
+      if (dataset == "baseline") {
+        df <- df %>%
+          mutate(UTILIZATION = DAILY_DEMAND/BASELINE) %>%
+          select(-SCENARIO) %>%
+          rename(AVG_BED_CAPACITY = BASELINE)
+      } else {
+        df <- df %>%
+          mutate(UTILIZATION = DAILY_DEMAND/SCENARIO)%>%
+          select(-BASELINE) %>%
+          rename(AVG_BED_CAPACITY = SCENARIO)
+      }
+      
+      # add boolean columns to show if day was above 85 and 95 % utilization
+      df <- df %>%
+        mutate(
+          UTILIZATION_85 = case_when(
+            UTILIZATION > .85 ~ TRUE,
+            TRUE ~ FALSE),
+          UTILIZATION_95 = case_when(
+            UTILIZATION > .95 ~ TRUE,
+            TRUE ~ FALSE))
     })
+    
+    # reasign original names to list
+    names(ip_utilization) <- names(datasets_processed)
     
     # Scenario Outputs
     ## IP Demand & Utilization Comparison
@@ -74,29 +78,29 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
                 by = c("FACILITY_MSX"="FACILITY_MSX",
                        "SERVICE_GROUP"="SERVICE_GROUP",
                        "SERVICE_MONTH"="SERVICE_MONTH",
-                       "SERVICE_DATE"="SERVICE_DATE",
-                       "AVG_BED_CAPACITY"="AVG_BED_CAPACITY"),
+                       "SERVICE_DATE"="SERVICE_DATE"),
                 suffix = c("_BASELINE", "_SCENARIO")) %>%
       filter(FACILITY_MSX %in% hospitals)
     
     # aggregate comparison at monthly level
     ip_comparison_monthly <- ip_comparison_daily %>%
-      group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, AVG_BED_CAPACITY) %>%
+      group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH) %>%
       summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
                 TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
-                TOTAL_90_BASELINE = sum(UTILIZATION_85_BASELINE),
-                TOTAL_90_SCENARIO = sum(UTILIZATION_85_SCENARIO),
+                TOTAL_85_BASELINE = sum(UTILIZATION_85_BASELINE),
+                TOTAL_85_SCENARIO = sum(UTILIZATION_85_SCENARIO),
                 TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
                 TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
-                AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY)) %>%
+                AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE),
+                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO)) %>%
       mutate(AVG_DAILY_DEMAND_BASELINE = TOTAL_DEMAND_BASELINE/days_in_month(SERVICE_MONTH),
              AVG_DAILY_DEMAND_SCENARIO = TOTAL_DEMAND_SCENARIO/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_90_BASELINE = TOTAL_90_BASELINE/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_90_SCENARIO = TOTAL_90_SCENARIO/days_in_month(SERVICE_MONTH),
+             AVG_PERCENT_85_BASELINE = TOTAL_85_BASELINE/days_in_month(SERVICE_MONTH),
+             AVG_PERCENT_85_SCENARIO = TOTAL_85_SCENARIO/days_in_month(SERVICE_MONTH),
              AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/days_in_month(SERVICE_MONTH),
              AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/days_in_month(SERVICE_MONTH),
-             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY,
-             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY) %>%
+             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY_BASELINE,
+             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY_SCENARIO) %>%
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
     
@@ -105,19 +109,20 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
       group_by(FACILITY_MSX, SERVICE_GROUP) %>% 
       summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
                 TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
-                TOTAL_90_BASELINE = sum(UTILIZATION_85_BASELINE),
-                TOTAL_90_SCENARIO = sum(UTILIZATION_85_SCENARIO),
+                TOTAL_85_BASELINE = sum(UTILIZATION_85_BASELINE),
+                TOTAL_85_SCENARIO = sum(UTILIZATION_85_SCENARIO),
                 TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
                 TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
-                AVG_BED_CAPACITY = mean(AVG_BED_CAPACITY)) %>%
+                AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE),
+                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO)) %>%
       mutate(AVG_DAILY_DEMAND_BASELINE = round(TOTAL_DEMAND_BASELINE/num_days,2),
              AVG_DAILY_DEMAND_SCENARIO = round(TOTAL_DEMAND_SCENARIO/num_days,2),
-             AVG_PERCENT_90_BASELINE = TOTAL_90_BASELINE/num_days,
-             AVG_PERCENT_90_SCENARIO = TOTAL_90_SCENARIO/num_days,
+             AVG_PERCENT_85_BASELINE = TOTAL_85_BASELINE/num_days,
+             AVG_PERCENT_85_SCENARIO = TOTAL_85_SCENARIO/num_days,
              AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/num_days,
              AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/num_days,
-             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY,
-             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY) %>%
+             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY_BASELINE,
+             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY_SCENARIO) %>%
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
     
@@ -128,13 +133,14 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
     ip_utilization_output <- ip_comparison_total %>%
       pivot_wider(id_cols = SERVICE_GROUP,
                   names_from = FACILITY_MSX,
-                  values_from = c(AVG_BED_CAPACITY,
+                  values_from = c(AVG_BED_CAPACITY_BASELINE,
+                                  AVG_BED_CAPACITY_SCENARIO,
                                   AVG_DAILY_DEMAND_BASELINE,
                                   AVG_DAILY_DEMAND_SCENARIO,
                                   AVG_UTILIZATION_BASELINE,
                                   AVG_UTILIZATION_SCENARIO,
-                                  AVG_PERCENT_90_BASELINE,
-                                  AVG_PERCENT_90_SCENARIO,
+                                  AVG_PERCENT_85_BASELINE,
+                                  AVG_PERCENT_85_SCENARIO,
                                   AVG_PERCENT_95_BASELINE,
                                   AVG_PERCENT_95_SCENARIO)) %>%
       select(SERVICE_GROUP, contains(hospitals[[1]]), contains(hospitals[[2]]))

@@ -57,6 +57,7 @@ BEGIN
               ip.VERITY_DEPT_DESC_SRC,
               ip.VERITY_DIV_CD_SRC,
               ip.VERITY_DIV_DESC_SRC,
+              ip.VERITY_REPORT_SERVICE_MSX,
               ip.SERVICE_DESC_MSX,
               charge.FACILITY_ABBR,
               charge.COST_CENTER_C,

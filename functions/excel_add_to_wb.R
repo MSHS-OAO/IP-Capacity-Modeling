@@ -22,37 +22,34 @@ add_to_wb <- function(df, sheetname, add_filter = FALSE) {
               sheetname,
               x = hospitals[[i]],
               startRow = 1,
-              startCol = 2 + ((i-1)*9))
+              startCol = 2 + ((i-1)*10))
     
     mergeCells(wb, sheetname, rows = 1,
-               cols = (2 + ((i-1)*9)):(1 + ((i)*9)))
-  }
-  
-  # bed capacity ---------------------------------------------------------------
-  for (i in 1:length(hospitals)) {
-    writeData(wb, sheetname, x = "Bed Capacity", startRow = 2, startCol = 2 + ((i-1)*9))
-    mergeCells(wb, sheetname, rows = 2:3, cols = 2 + ((i-1)*9))
+               cols = (2 + ((i-1)*10)):(1 + ((i)*10)))
   }
   
   # metrics row ----------------------------------------------------------------
   for (i in 1:length(hospitals)) {
-    writeData(wb, sheetname, x = "Daily Bed Demand", startRow = 2, startCol = 3 + ((i-1)*9))
-    mergeCells(wb, sheetname, rows = 2, cols = (3 + ((i-1)*9)):(3 + ((i-1)*9) + 1))
+    writeData(wb, sheetname, x = "Bed Capacity", startRow = 2, startCol = 2 + ((i-1)*10))
+    mergeCells(wb, sheetname, rows = 2, cols = (2 + ((i-1)*10)):(2 + ((i-1)*10) + 1))
     
-    writeData(wb, sheetname, x = "Avg. Bed Utilization", startRow = 2, startCol = 5 + ((i-1)*9))
-    mergeCells(wb, sheetname, rows = 2, cols = (5 + ((i-1)*9)):(5 + ((i-1)*9) + 1))
+    writeData(wb, sheetname, x = "Daily Bed Demand", startRow = 2, startCol = 4 + ((i-1)*10))
+    mergeCells(wb, sheetname, rows = 2, cols = (4 + ((i-1)*10)):(4 + ((i-1)*10) + 1))
     
-    writeData(wb, sheetname, x = "Days over 85%", startRow = 2, startCol = 7 + ((i-1)*9))
-    mergeCells(wb, sheetname, rows = 2, cols = (7 + ((i-1)*9)):(7 + ((i-1)*9) + 1))
+    writeData(wb, sheetname, x = "Avg. Bed Utilization", startRow = 2, startCol = 6 + ((i-1)*10))
+    mergeCells(wb, sheetname, rows = 2, cols = (6 + ((i-1)*10)):(6 + ((i-1)*10) + 1))
     
-    writeData(wb, sheetname, x = "Days over 95%", startRow = 2, startCol = 9 + ((i-1)*9))
-    mergeCells(wb, sheetname, rows = 2, cols = (9 + ((i-1)*9)):(9 + ((i-1)*9) + 1))
+    writeData(wb, sheetname, x = "Days over 85%", startRow = 2, startCol = 8 + ((i-1)*10))
+    mergeCells(wb, sheetname, rows = 2, cols = (8 + ((i-1)*10)):(8 + ((i-1)*10) + 1))
+    
+    writeData(wb, sheetname, x = "Days over 95%", startRow = 2, startCol = 10 + ((i-1)*10))
+    mergeCells(wb, sheetname, rows = 2, cols = (10 + ((i-1)*10)):(10 + ((i-1)*10) + 1))
   }
   
   # baseline scenario ----------------------------------------------------------
-  subheader <- rep(c("Baseline", "Scenario"), 4)
+  subheader <- rep(c("Baseline", "Scenario"), 5)
   for (i in 1:length(hospitals)) {
-    writeData(wb, sheetname, x = matrix(subheader, nrow = 1, byrow = TRUE), startRow = 3, startCol = 3 + ((i-1)*9), colNames = FALSE)
+    writeData(wb, sheetname, x = matrix(subheader, nrow = 1, byrow = TRUE), startRow = 3, startCol = 2 + ((i-1)*10), colNames = FALSE)
   }
   
   # unit type ------------------------------------------------------------------
@@ -66,12 +63,12 @@ add_to_wb <- function(df, sheetname, add_filter = FALSE) {
   
   # apply numeric formatting
   for (i in 1:length(hospitals)) {
-    addStyle(wb, sheetname, numeric_style, rows = 4:(nrow(df) + 4), cols = (2 + ((i-1)*9)):(4 + ((i-1)*9)), gridExpand = TRUE, stack = TRUE)
+    addStyle(wb, sheetname, numeric_style, rows = 4:(nrow(df) + 3), cols = (2 + ((i-1)*10)):(5 + ((i-1)*10)), gridExpand = TRUE, stack = TRUE)
   }
   
   # apply percentage formatting
   for (i in 1:length(hospitals)) {
-    addStyle(wb, sheetname, percent_style, rows = 4:(nrow(df) + 4), cols = (5 + ((i-1)*9)):(10 + ((i-1)*9)), gridExpand = TRUE, stack = TRUE)
+    addStyle(wb, sheetname, percent_style, rows = 4:(nrow(df) + 3), cols = (6 + ((i-1)*10)):(11 + ((i-1)*10)), gridExpand = TRUE, stack = TRUE)
   }
   
   # apply cell styles

@@ -45,8 +45,8 @@ ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = 
 ```{r total utilization}
 total_utilization <- ip_comparison_daily %>%
   group_by(FACILITY_MSX, SERVICE_DATE) %>%
-  summarise(BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE)/sum(AVG_BED_CAPACITY, na.rm = TRUE),
-            SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE)/sum(AVG_BED_CAPACITY, na.rm = TRUE)) %>%
+  summarise(BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE)/sum(AVG_BED_CAPACITY_BASELINE, na.rm = TRUE),
+            SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE)/sum(AVG_BED_CAPACITY_SCENARIO, na.rm = TRUE)) %>%
   mutate(SERVICE_DATE = as.Date(SERVICE_DATE)) %>%
   pivot_longer(cols = c(BASELINE, SCENARIO),
                names_to = "Dataset",

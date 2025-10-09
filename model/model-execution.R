@@ -23,8 +23,6 @@ cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optim
 
 # list for all utilizations
 utilizations <- list()
-# load excel workbook function
-source("functions/excel_add_to_wb.R")
 
 # Sinai color scheme
 mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
@@ -53,6 +51,9 @@ reroute_service_group_percent <- list(
     "Critical Care" = 0.35)
 )
 
+# file with unit capacity adjustments
+unit_capacity_adjustments <- "tisch_cancer_center.csv"
+
 # emergency exclusions
 exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- FALSE
@@ -80,11 +81,13 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 
 # Render Models ----------------------------------------------------------------
 
-#execute script for scenario generator and exclusion criteria
+# load all functions
 source("functions/emergency_exclusion.R")
 source("functions/location_swap.R")
+source("functions/unit_capacity.R")
+source("functions/excel_add_to_wb.R")
 
-# execute ip utilziation script
+# execute ip utiliziation script
 source("model/model-ip-utilization.R")
 
 # run code for IP_Utilization
@@ -107,8 +110,8 @@ for (i in seq_along(percentage_to_hosp1_list)) {
   # Unpack values from IP result list
   ip_utilization_output = results$ip_utilization_output
   ip_comparison_total = results$ip_comparison_total
-  ip_comparison_daily = results$ip_comparison_daily
   ip_comparison_monthly = results$ip_comparison_monthly
+  ip_comparison_daily = results$ip_comparison_daily
   
   # save utilizations outputs in list to loop through for workbook saving
   list_name <- paste0(hospitals[[1]], percentage_to_hosp2 * 100, " - ",
@@ -138,17 +141,23 @@ parameters <- data.frame(
   "Service Line" = c(services[[1]],
                      services[[2]]),
   "Emergency Exclusion" = c(exclusion_hosp2,
-                            exclusion_hosp1),
-  check.names = FALSE)
+                            exclusion_hosp1), check.names = FALSE)
 parameters$`Routing Logic` <- reroute_service_group_percent
 
 # create sheet name
 sheet <- addWorksheet(wb, "Parameters")
-
 setColWidths(wb, "Parameters", cols = 1:ncol(parameters), widths = "auto")
-
 # write data to sheet
 writeData(wb, x = parameters, sheet = "Parameters")
+
+# create a sheet with the unit capacity changes
+if (!is.null(unit_capacity_adjustments)) {
+  cap_adjustments <- read_csv(paste0(cap_dir, "Mapping Info/unit capacity/",
+                                     unit_capacity_adjustments), show_col_types = FALSE)
+  sheet <- addWorksheet(wb, "Capacity Adjustments")
+  setColWidths(wb, "Capacity Adjustments", cols = 1:ncol(cap_adjustments), widths = "auto")
+  writeData(wb, x = cap_adjustments, sheet = "Capacity Adjustments")
+}
 
 # create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {

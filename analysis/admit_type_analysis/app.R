@@ -195,7 +195,7 @@ assign("diff_days", diff_days, envir = .GlobalEnv)
 
 #  ***************************** UI  *****************************
 ui <- fluidPage(
-  titlePanel("Admit Type Analysis"),
+  titlePanel("Inpatient Admit Type Analysis"),
   
   tags$head(
     tags$style(HTML("

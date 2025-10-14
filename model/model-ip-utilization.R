@@ -156,7 +156,8 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
              AVG_DAILY_DEMAND_BASELINE,AVG_UTILIZATION_BASELINE, 
              AVG_PERCENT_85_BASELINE, AVG_BED_CAPACITY_SCENARIO, 
              AVG_DAILY_DEMAND_SCENARIO, AVG_UTILIZATION_SCENARIO, 
-             AVG_PERCENT_85_SCENARIO)
+             AVG_PERCENT_85_SCENARIO) %>%
+      filter(AVG_DAILY_DEMAND_BASELINE > 1)
     
     
     return(list(
@@ -168,23 +169,36 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
     
   })
   
-  
-  ip_utilization_output <- bind_rows(lapply(outputs_list, `[[`, "ip_utilization_output"))  %>%
-    group_by(SERVICE_GROUP) %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
-  
-  ip_comparison_daily <- bind_rows(lapply(outputs_list, `[[`, "ip_comparison_daily")) %>%
-    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE, AVG_BED_CAPACITY_BASELINE, AVG_BED_CAPACITY_SCENARIO) %>%
-    summarise(across(ends_with("_BASELINE") | ends_with("_SCENARIO"), mean, na.rm = TRUE), .groups = "drop")
-  
-  ip_comparison_monthly <- bind_rows(lapply(outputs_list, `[[`, "ip_comparison_monthly")) %>%
-    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, AVG_BED_CAPACITY_BASELINE, AVG_BED_CAPACITY_SCENARIO) %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
-  
-  ip_comparison_total <- bind_rows(lapply(outputs_list, `[[`, "ip_comparison_total")) %>%
+  # --- 1. ip_utilization_output ---
+  ip_utilization_output <- outputs_list %>%
+    map("ip_utilization_output") %>%
+    list_rbind() %>%
     group_by(FACILITY_MSX, SERVICE_GROUP) %>%
-    summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+    summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
   
+  # --- 2. ip_comparison_daily ---
+  ip_comparison_daily <- outputs_list %>%
+    map("ip_comparison_daily") %>%
+    list_rbind() %>%
+    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE,
+             AVG_BED_CAPACITY_BASELINE, AVG_BED_CAPACITY_SCENARIO) %>%
+    summarise(across(ends_with("_BASELINE") | ends_with("_SCENARIO"),
+                     ~mean(.x, na.rm = TRUE)), .groups = "drop")
+  
+  # --- 3. ip_comparison_monthly ---
+  ip_comparison_monthly <- outputs_list %>%
+    map("ip_comparison_monthly") %>%
+    list_rbind() %>%
+    group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH,
+             AVG_BED_CAPACITY_BASELINE, AVG_BED_CAPACITY_SCENARIO) %>%
+    summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
+  
+  # --- 3. ip_comparison_total ---
+  ip_comparison_total <- outputs_list %>%
+    map("ip_comparison_total") %>%
+    list_rbind() %>%
+    group_by(FACILITY_MSX, SERVICE_GROUP) %>%
+    summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
   
   rm(outputs_list)
   return(list(

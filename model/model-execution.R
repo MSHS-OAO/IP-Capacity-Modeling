@@ -30,20 +30,18 @@ hospitals <- list(
 hospitals <- NULL
 
 # set of services to be swapped in scenario
-#services <- list(
-#  "CARDIOVASCULAR SURGERY",
-#  "VASCULAR SURGERY"
-#)
-services <- NULL 
+services <- list(
+  "CARDIOVASCULAR SURGERY",
+  "VASCULAR SURGERY")
+#services <- NULL 
 
 # how the rerouted service group should be distributed at destination hospital
-#reroute_service_group_percent <- list(
-#  c("Med Surg" = 0.80,
-#    "Critical Care" = 0.20),
-#  c("Heart" = 0.65,
-#    "Critical Care" = 0.35)
-#)
-reroute_service_group_percent <- NULL 
+reroute_service_group_percent <- list(
+  c("Med Surg" = 0.80,
+    "Critical Care" = 0.20),
+  c("Heart" = 0.65,
+    "Critical Care" = 0.35))
+#reroute_service_group_percent <- NULL 
 
 # file with unit capacity adjustments
 unit_capacity_adjustments <- "tisch_cancer_center.csv"
@@ -56,13 +54,13 @@ exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- FALSE
 
 # percentage of service line moving from hospital n
-#percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
-#percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
+percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
+percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
 percentage_to_hosp1_list <- NULL
 percentage_to_hosp2_list <- NULL
 
 # specify num of simulations
-n_simulations = 1
+n_simulations = 2
 
 # Load Baseline Data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
@@ -88,6 +86,7 @@ source("functions/emergency_exclusion.R")
 source("functions/location_swap.R")
 source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
+source("functions/save_parameters.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -107,8 +106,8 @@ for (i in 1:p) {
     n_simulations = n_simulations,
     hospitals = hospitals, 
     services = services, 
-    percentage_to_hosp1 = ifelse(is.null(percentage_to_hosp1_list), 1, percentage_to_hosp1_list[p]),
-    percentage_to_hosp2 = ifelse(is.null(percentage_to_hosp2_list), 1, percentage_to_hosp2_list[p])
+    percentage_to_hosp1 = ifelse(is.null(percentage_to_hosp1_list), 1, percentage_to_hosp1_list[i]),
+    percentage_to_hosp2 = ifelse(is.null(percentage_to_hosp2_list), 1, percentage_to_hosp2_list[i])
   )
   
   # Unpack values from IP result list
@@ -121,8 +120,8 @@ for (i in 1:p) {
   if (n == 1) {
     utilizations[["MSHS IP Utilization"]] <- ip_utilization_output
   } else {
-    list_name <- paste0(hospitals[[1]], percentage_to_hosp2 * 100, " - ",
-                        hospitals[[2]], percentage_to_hosp1 * 100)
+    list_name <- paste0(hospitals[[1]], percentage_to_hosp2_list[i] * 100, " - ",
+                        hospitals[[2]], percentage_to_hosp1_list[i] * 100)
     utilizations[[list_name]] <- ip_utilization_output
   }
   
@@ -136,8 +135,8 @@ for (i in 1:p) {
                                "model-visualizations-", 
                                hospitals[[1]], services[[1]], "-",
                                hospitals[[2]], services[[2]], "_",
-                               percentage_to_hosp1 * 100, "-",
-                               percentage_to_hosp2 * 100, "_",
+                               percentage_to_hosp1_list[i] * 100, "-",
+                               percentage_to_hosp2_list[i] * 100, "_",
                                Sys.Date(), ".html")
     render(input = "model/model-visualizations.Rmd",
            output_file = html_output_path)
@@ -148,30 +147,8 @@ for (i in 1:p) {
 # create excel workbook for model outputs
 wb <- createWorkbook()
 
-# create a sheet defining the scenario parameters
-parameters <- data.frame(
-  "Hospital" = c(hospitals[[2]],
-                 hospitals[[1]]),
-  "Service Line" = c(services[[1]],
-                     services[[2]]),
-  "Emergency Exclusion" = c(exclusion_hosp2,
-                            exclusion_hosp1), check.names = FALSE)
-parameters$`Routing Logic` <- reroute_service_group_percent
-
-# create sheet name
-sheet <- addWorksheet(wb, "Parameters")
-setColWidths(wb, "Parameters", cols = 1:ncol(parameters), widths = "auto")
-# write data to sheet
-writeData(wb, x = parameters, sheet = "Parameters")
-
-# create a sheet with the unit capacity changes
-if (!is.null(unit_capacity_adjustments)) {
-  cap_adjustments <- read_csv(paste0(cap_dir, "Mapping Info/unit capacity/",
-                                     unit_capacity_adjustments), show_col_types = FALSE)
-  sheet <- addWorksheet(wb, "Capacity Adjustments")
-  setColWidths(wb, "Capacity Adjustments", cols = 1:ncol(cap_adjustments), widths = "auto")
-  writeData(wb, x = cap_adjustments, sheet = "Capacity Adjustments")
-}
+# save parameters and unit capacity changes as necessary
+save_parameters()
 
 # create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {
@@ -179,12 +156,16 @@ for (i in 1:length(utilizations)) {
             sheetname = names(utilizations[i]))
 }
 
-saveWorkbook(wb, 
-             file = paste0(cap_dir, "Model Outputs/Workbooks/",
-                           hospitals[[1]], services[[1]], "-",
-                           hospitals[[2]], services[[2]],"_",
-                           Sys.Date(), ".xlsx"),
-             overwrite = TRUE )
-
-rm(ip_utilization_output,ip_comparison_total,ip_comparison_daily, ip_comparison_monthly,
-   lab_rad_output,lab_rad_baseline_comp,lab_rad_demand,results,lab_results)
+if (n == 1) {
+  saveWorkbook(wb,
+               file = paste0(cap_dir, "Model Outputs/Workbooks/",
+                             "MSHS_IP Utilization_", Sys.Date(), ".xlsx"),
+               overwrite = TRUE)
+} else {
+  saveWorkbook(wb, 
+               file = paste0(cap_dir, "Model Outputs/Workbooks/",
+                             hospitals[[1]], services[[1]], "-",
+                             hospitals[[2]], services[[2]],"_",
+                             Sys.Date(), ".xlsx"),
+               overwrite = TRUE )
+}

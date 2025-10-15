@@ -6,7 +6,7 @@
 #
 #    http://shiny.rstudio.com/
 #
-
+ 
 library(shiny)
 library(DBI)
 library(dplyr)
@@ -45,8 +45,18 @@ baseline <- tbl(conn, "IPCAP_BEDCHARGES") %>%
       TRUE ~ FACILITY_MSX
     )
   ) %>%
-  filter(!(is.na(SERVICE_GROUP) | is.na(PRINCIPAL_SURGEON_NAME_MSX ) | is.na(VERITY_DIV_DESC_SRC) | ADMIT_TYPE_DESC_SRC == "INFORMATION NOT AVAILABLE"))
-
+  filter(!(is.na(SERVICE_GROUP) | is.na(PRINCIPAL_SURGEON_NAME_MSX ) | is.na(VERITY_DIV_DESC_SRC) | ADMIT_TYPE_DESC_SRC == "INFORMATION NOT AVAILABLE")) %>%
+  filter(!is.na(EXTERNAL_NAME)) %>%
+  group_by(ENCOUNTER_NO, SERVICE_DATE, FACILITY_MSX, VERITY_DIV_DESC_SRC, SERVICE_GROUP, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
+  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
+  mutate(
+    BED_CHARGES = case_when(
+      BED_CHARGES > 1 ~ 1,
+      TRUE ~ BED_CHARGES
+    )
+  ) %>%
+  filter(BED_CHARGES != 0) %>%
+  select(-BED_CHARGES)
 
 dbDisconnect(conn)
 
@@ -68,29 +78,8 @@ baseline <- baseline %>%
 
 
 #calculating baseline with repetitive daily rows for patients/day calculations
-# patients_per_day_baseline <- baseline %>%
-#   arrange(SERVICE_DATE) %>%
-#   distinct(ENCOUNTER_NO, SERVICE_DATE,SERVICE_GROUP, VERITY_DIV_DESC_SRC, FACILITY_MSX,ADMIT_TYPE_DESC_SRC,PRINCIPAL_SURGEON_NAME_MSX, .keep_all = TRUE)
-# 
-
 patients_per_day_baseline <- baseline %>%
-  filter(!is.na(EXTERNAL_NAME)) %>%
-  group_by(ENCOUNTER_NO, SERVICE_DATE, FACILITY_MSX,VERITY_DIV_DESC_SRC, SERVICE_GROUP,PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
-  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
-  mutate(
-    BED_CHARGES = case_when(
-      BED_CHARGES > 1 ~ 1,
-      TRUE ~ BED_CHARGES
-    )
-  ) %>%
-  filter(BED_CHARGES != 0) %>%                 
-  group_by(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP,VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC) %>%
-  select(-BED_CHARGES)                         
-
-
-#deselect quantity and external name, not needed after
-baseline <- baseline %>%
-  select(-QUANTITY,-EXTERNAL_NAME,-SERVICE_MONTH)
+  group_by(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP,VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC)
 
 
 # calculating baseline for percentage calculation (only one row per encounter (first day of encounter))
@@ -102,7 +91,6 @@ baseline <- baseline %>%
 # dropping unnecessary columns
 baseline <- baseline %>%
   select(-ENCOUNTER_NO,-SERVICE_DATE)
-
 
 
 # *****************************  CONSTRUCTION OF SERVICE TABLE *****************************

@@ -62,7 +62,7 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
       # calculat daily averages of bed demand and join bed capacity data
       df <- df %>%
         group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
-        summarise(DAILY_DEMAND = sum(DAILY_DEMAND), .groups = "drop") %>%
+        summarise(DAILY_DEMAND = sum(DAILY_DEMAND, na.rm = TRUE), .groups = "drop") %>%
         collect() %>%
       left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
                                 "SERVICE_GROUP" = "SERVICE_GROUP",
@@ -104,51 +104,65 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
                        "SERVICE_MONTH"="SERVICE_MONTH",
                        "SERVICE_DATE"="SERVICE_DATE"),
                 suffix = c("_BASELINE", "_SCENARIO")) %>%
-      filter(FACILITY_MSX != "MSBI")
+      filter(FACILITY_MSX != "MSBI") %>%
+      mutate(DOW = wday(SERVICE_DATE),
+             WEEKDAY = 
+               case_when(DOW %in% c(1, 7) ~ FALSE,
+                         TRUE ~ TRUE))
+    
+    ip_comparison_weekday <- ip_comparison_daily %>%
+      filter(WEEKDAY == TRUE)
     
     # aggregate comparison at monthly level
     ip_comparison_monthly <- ip_comparison_daily %>%
       group_by(FACILITY_MSX, SERVICE_GROUP, SERVICE_MONTH) %>%
-      summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
-                TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
-                TOTAL_85_BASELINE = sum(UTILIZATION_85_BASELINE),
-                TOTAL_85_SCENARIO = sum(UTILIZATION_85_SCENARIO),
-                TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
-                TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
-                AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE),
-                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO)) %>%
-      mutate(AVG_DAILY_DEMAND_BASELINE = TOTAL_DEMAND_BASELINE/days_in_month(SERVICE_MONTH),
-             AVG_DAILY_DEMAND_SCENARIO = TOTAL_DEMAND_SCENARIO/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_85_BASELINE = TOTAL_85_BASELINE/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_85_SCENARIO = TOTAL_85_SCENARIO/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/days_in_month(SERVICE_MONTH),
-             AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/days_in_month(SERVICE_MONTH),
-             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY_BASELINE,
-             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY_SCENARIO) %>%
+      summarise(AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE, na.rm = TRUE),
+                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO, na.rm = TRUE),
+                AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE, na.rm = TRUE),
+                AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_85_BASELINE = mean(UTILIZATION_85_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_85_SCENARIO = mean(UTILIZATION_85_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO, na.rm = TRUE),
+                AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
+                AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
     
     # aggregate comparison at total level
     ip_comparison_total <- ip_comparison_daily %>%
       group_by(FACILITY_MSX, SERVICE_GROUP) %>% 
-      summarise(TOTAL_DEMAND_BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE),
-                TOTAL_DEMAND_SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
-                TOTAL_85_BASELINE = sum(UTILIZATION_85_BASELINE),
-                TOTAL_85_SCENARIO = sum(UTILIZATION_85_SCENARIO),
-                TOTAL_95_BASELINE = sum(UTILIZATION_95_BASELINE),
-                TOTAL_95_SCENARIO = sum(UTILIZATION_95_SCENARIO),
-                AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE),
-                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO)) %>%
-      mutate(AVG_DAILY_DEMAND_BASELINE = round(TOTAL_DEMAND_BASELINE/num_days,2),
-             AVG_DAILY_DEMAND_SCENARIO = round(TOTAL_DEMAND_SCENARIO/num_days,2),
-             AVG_PERCENT_85_BASELINE = TOTAL_85_BASELINE/num_days,
-             AVG_PERCENT_85_SCENARIO = TOTAL_85_SCENARIO/num_days,
-             AVG_PERCENT_95_BASELINE = TOTAL_95_BASELINE/num_days,
-             AVG_PERCENT_95_SCENARIO = TOTAL_95_SCENARIO/num_days,
-             AVG_UTILIZATION_BASELINE = AVG_DAILY_DEMAND_BASELINE/AVG_BED_CAPACITY_BASELINE,
-             AVG_UTILIZATION_SCENARIO = AVG_DAILY_DEMAND_SCENARIO/AVG_BED_CAPACITY_SCENARIO) %>%
+      summarise(AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE, na.rm = TRUE),
+                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO, na.rm = TRUE),
+                AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE, na.rm = TRUE),
+                AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_85_BASELINE = mean(UTILIZATION_85_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_85_SCENARIO = mean(UTILIZATION_85_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO, na.rm = TRUE),
+                AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
+                AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
+    
+    # aggregate weekday comparison at total level
+    ip_comparison_weekday_total <- ip_comparison_weekday %>%
+      group_by(FACILITY_MSX, SERVICE_GROUP) %>% 
+      summarise(AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE, na.rm = TRUE),
+                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO, na.rm = TRUE),
+                AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE, na.rm = TRUE),
+                AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_85_BASELINE = mean(UTILIZATION_85_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_85_SCENARIO = mean(UTILIZATION_85_SCENARIO, na.rm = TRUE),
+                AVG_PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE, na.rm = TRUE),
+                AVG_PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO, na.rm = TRUE),
+                AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
+                AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
+      mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
+      mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO)) %>%
+      rename(AVG_WEEKDAY_UTILIZATION_BASELINE = AVG_UTILIZATION_BASELINE,
+             AVG_WEEKDAY_UTILIZATION_SCENARIO = AVG_UTILIZATION_SCENARIO) %>%
+      select(FACILITY_MSX, SERVICE_GROUP, AVG_WEEKDAY_UTILIZATION_BASELINE, AVG_WEEKDAY_UTILIZATION_SCENARIO)
     
     # IP Utilization Output
     ip_utilization_output <- ip_comparison_total %>%
@@ -157,8 +171,12 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
              AVG_PERCENT_85_BASELINE, AVG_BED_CAPACITY_SCENARIO, 
              AVG_DAILY_DEMAND_SCENARIO, AVG_UTILIZATION_SCENARIO, 
              AVG_PERCENT_85_SCENARIO) %>%
-      filter(AVG_DAILY_DEMAND_BASELINE > 1)
-    
+      filter(AVG_DAILY_DEMAND_BASELINE > 1) %>%
+      left_join(ip_comparison_weekday_total,
+                by = c("FACILITY_MSX" = "FACILITY_MSX",
+                       "SERVICE_GROUP" = "SERVICE_GROUP")) %>%
+      relocate(AVG_WEEKDAY_UTILIZATION_BASELINE, .after = AVG_UTILIZATION_BASELINE) %>%
+      relocate(AVG_WEEKDAY_UTILIZATION_SCENARIO, .after = AVG_UTILIZATION_SCENARIO)
     
     return(list(
       ip_comparison_daily = ip_comparison_daily,

@@ -22,7 +22,7 @@ add_to_wb <- function(df, sheetname) {
                        ")"),
             startRow = 1,
             startCol = 3)
-  mergeCells(wb, sheetname, rows = 1, cols = 3:6)
+  mergeCells(wb, sheetname, rows = 1, cols = 3:7)
   
   # Scenario title
   writeData(wb,
@@ -30,7 +30,7 @@ add_to_wb <- function(df, sheetname) {
             x = "Projections",
             startRow = 1,
             startCol = 7)
-  mergeCells(wb, sheetname, rows = 1, cols = 7:10)
+  mergeCells(wb, sheetname, rows = 1, cols = 8:12)
 
   # Metric row -----------------------------------------------------------------
   # Hospital and Unit Type headers
@@ -40,7 +40,7 @@ add_to_wb <- function(df, sheetname) {
             startCol = 1,
             colNames = FALSE)
   # Baseline and scenario metrics
-  metrics <- c("Avg. Bed Capacity", "Avg.Daily Demand", "Avg. Bed Utilization", "Days over 85%")
+  metrics <- c("Avg. Bed Capacity", "Avg.Daily Demand", "Avg. Bed Utilization", "Avg. Weekday Utilization", "Days over 85%")
   writeData(wb,
             sheetname,
             x = t(as.data.frame(rep(metrics, 2))),
@@ -62,13 +62,13 @@ add_to_wb <- function(df, sheetname) {
   percent_style <- createStyle(numFmt = "0%")
   
   # Apply data styles
-  addStyle(wb, sheetname, numeric_style, rows = 4:(nrow(df) + 3), cols = c(3:4, 7:8), gridExpand = TRUE, stack = TRUE)
-  addStyle(wb, sheetname, percent_style, rows = 4:(nrow(df) + 3), cols = c(5:6, 9:10), gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheetname, numeric_style, rows = 4:(nrow(df) + 3), cols = c(3:4, 8:9), gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheetname, percent_style, rows = 4:(nrow(df) + 3), cols = c(5:7, 10:12), gridExpand = TRUE, stack = TRUE)
   
   # Apply header styles
   addStyle(wb, sheetname, hosp_style, rows = 2:3, cols = 1:2, gridExpand = TRUE, stack = TRUE)
-  addStyle(wb, sheetname, baseline_style, rows = 1:3, cols = 3:6, gridExpand = TRUE, stack = TRUE)
-  addStyle(wb, sheetname, scenario_style, rows = 1:3, cols = 7:10, gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheetname, baseline_style, rows = 1:3, cols = 3:7, gridExpand = TRUE, stack = TRUE)
+  addStyle(wb, sheetname, scenario_style, rows = 1:3, cols = 8:12, gridExpand = TRUE, stack = TRUE)
   
   # Apply body borders
   addStyle(wb, sheetname, body_style, rows = 1:(nrow(df) + 3), cols = 1:ncol(df), gridExpand = TRUE, stack = TRUE)

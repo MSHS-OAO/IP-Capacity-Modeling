@@ -27,7 +27,7 @@ hospitals <- list(
   "MSH",
   "MSM"
 )
-hospitals <- NULL
+#hospitals <- NULL
 
 # set of services to be swapped in scenario
 services <- list(
@@ -51,13 +51,13 @@ vol_projections_file <- "2026_budget_volume.csv"
 
 # emergency exclusions
 exclusion_hosp1 <- TRUE
-exclusion_hosp2 <- FALSE
+exclusion_hosp2 <- TRUE
 
 # percentage of service line moving from hospital n
-percentage_to_hosp1_list <- c(1, 1, 1, 1, 0, 0, 0, 0)
-percentage_to_hosp2_list <- c(1, .9, .8, .7, 1, .9, .8, .7)
-percentage_to_hosp1_list <- NULL
-percentage_to_hosp2_list <- NULL
+percentage_to_hosp1_list <- c(0, 1, 1, 1, 1, 0, 0, 0, 0)
+percentage_to_hosp2_list <- c(0, 1, .9, .8, .7, 1, .9, .8, .7)
+#percentage_to_hosp1_list <- NULL
+#percentage_to_hosp2_list <- NULL
 
 # specify num of simulations
 n_simulations = 2
@@ -78,6 +78,8 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
                                 min(baseline$SERVICE_DATE), 
                                 units = "days")) + 1
+weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
+num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 
 # Render Models ----------------------------------------------------------------
 

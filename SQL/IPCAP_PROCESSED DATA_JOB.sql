@@ -22,9 +22,16 @@ BEGIN
              SERVICE_DATE BETWEEN 20240601 AND 20250630
    ),
    service_group AS (
-       SELECT *
+       SELECT
+           DEPARTMENT_ID,
+           EXTERNAL_NAME,
+           CASE
+               WHEN EXTERNAL_NAME = 'MSH CSDU KCC 6 North' THEN 'Heart'
+               ELSE SERVICE_GROUP
+               END AS SERVICE_GROUP,
+           RPT_GRP_TWENTYTHREE
        FROM DASHBD_USER.CLARITY_DEP_REF
-       WHERE EXTERNAL_NAME not in ('MSW MAIN 11NU', 'MSW Main 12A (L&D)')
+       WHERE EXTERNAL_NAME NOT IN ('MSW MAIN 11NU', 'MSW Main 12A (L&D)')
    ),
    cpt AS (
        SELECT CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT

@@ -42,6 +42,10 @@ BEGIN
        SELECT *
        FROM IPCAP_BILLING_CAT_DESC
    ),
+   principal_surgeon AS (
+       SELECT *
+       FROM MSX_PROVIDER_V
+   ),
    final AS (
        SELECT ip.ENCOUNTER_NO,
               ip.MSMRN,
@@ -53,18 +57,20 @@ BEGIN
               ip.LOS_NO_SRC,
               ip.ATTENDING_MD_CD_SRC,
               ip.ATTENDING_MD_NAME_MSX,
+              ip.VERITY_DEPT_CD_SRC AS ATTENDING_VERITY_DEPT_CD,
+              ip.VERITY_DEPT_DESC_SRC AS ATTENDING_VERITY_DEPT_DESC,
+              ip.VERITY_DIV_CD_SRC AS ATTENDING_VERITY_DIV_CD,
+              ip.VERITY_DIV_DESC_SRC AS ATTENDING_VERITY_DIV_DESC,
+              ip.VERITY_REPORT_SERVICE_MSX AS ATTENDING_VERITY_REPORT_SERVICE,
               ip.PRINCIPAL_SURGEON_CD_SRC,
               ip.PRINCIPAL_SURGEON_NAME_MSX,
+              principal_surgeon.VERITY_DEPT_1_DESC_SRC as PRINCIPAL_SURGEON_VERITY_DEPT_DESC,
+              principal_surgeon.VERITY_DIV_DESC_SRC as PRINCIPAL_SURGEON_VERITY_DIV_DESC,
               ip.MSDRG_CD_SRC,
               ip.MSDRG_DESC_MSX,
               ip.ADMIT_TYPE_CD_SRC,
               ip.ADMIT_TYPE_DESC_SRC,
               ip.VIZ_EX_LOS,
-              ip.VERITY_DEPT_CD_SRC,
-              ip.VERITY_DEPT_DESC_SRC,
-              ip.VERITY_DIV_CD_SRC,
-              ip.VERITY_DIV_DESC_SRC,
-              ip.VERITY_REPORT_SERVICE_MSX,
               ip.SERVICE_DESC_MSX,
               charge.FACILITY_ABBR,
               charge.COST_CENTER_C,
@@ -94,6 +100,8 @@ BEGIN
          ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
        LEFT JOIN cpt
          ON charge.CPT_HCPCS_C = cpt.CPT
+       LEFT JOIN principal_surgeon
+         ON ip.PRINCIPAL_SURGEON_CD_SRC = principal_surgeon.MSH_PROV_CD
        LEFT JOIN billing_cat
          ON charge.BILLING_CAT_DESC = billing_cat.BILLING_CAT_DESC
    )

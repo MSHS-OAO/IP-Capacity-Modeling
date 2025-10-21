@@ -265,6 +265,7 @@ ui <- fluidPage(
         label   = "Select Service Line:",
         choices = NULL,
         multiple =TRUE,
+        width   = "100%",
         options = pickerOptions(
           liveSearch = TRUE,
           liveSearchStyle = "startsWith",

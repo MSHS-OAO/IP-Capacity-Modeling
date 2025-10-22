@@ -28,7 +28,7 @@ baseline <- tbl(conn, "IPCAP_BEDCHARGES") %>%
          ENCOUNTER_NO,
          SERVICE_DATE,
          FACILITY_MSX,
-         VERITY_DIV_DESC_SRC,
+         PRINCIPAL_SURGEON_VERITY_DIV_DESC,
          SERVICE_GROUP,
          ADMIT_TYPE_DESC_SRC,
          PRINCIPAL_SURGEON_NAME_MSX
@@ -45,9 +45,9 @@ baseline <- tbl(conn, "IPCAP_BEDCHARGES") %>%
       TRUE ~ FACILITY_MSX
     )
   ) %>%
-  filter(!(is.na(SERVICE_GROUP) | is.na(PRINCIPAL_SURGEON_NAME_MSX ) | is.na(VERITY_DIV_DESC_SRC) | ADMIT_TYPE_DESC_SRC == "INFORMATION NOT AVAILABLE")) %>%
+  filter(!(is.na(SERVICE_GROUP) | is.na(PRINCIPAL_SURGEON_NAME_MSX ) | is.na(PRINCIPAL_SURGEON_VERITY_DIV_DESC) | ADMIT_TYPE_DESC_SRC == "INFORMATION NOT AVAILABLE")) %>%
   filter(!is.na(EXTERNAL_NAME)) %>%
-  group_by(ENCOUNTER_NO, SERVICE_DATE, FACILITY_MSX, VERITY_DIV_DESC_SRC, SERVICE_GROUP, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
+  group_by(ENCOUNTER_NO, SERVICE_DATE, FACILITY_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC, SERVICE_GROUP, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
   summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
   mutate(
     BED_CHARGES = case_when(
@@ -79,13 +79,13 @@ baseline <- baseline %>%
 
 #calculating baseline with repetitive daily rows for patients/day calculations
 patients_per_day_baseline <- baseline %>%
-  group_by(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP,VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC)
+  group_by(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP,PRINCIPAL_SURGEON_VERITY_DIV_DESC, ADMIT_TYPE_DESC_SRC)
 
 
 # calculating baseline for percentage calculation (only one row per encounter (first day of encounter))
 baseline <- baseline %>%
   arrange(SERVICE_DATE) %>%
-  distinct(ENCOUNTER_NO,FACILITY_MSX,SERVICE_GROUP, VERITY_DIV_DESC_SRC,ADMIT_TYPE_DESC_SRC,PRINCIPAL_SURGEON_NAME_MSX, .keep_all = TRUE)
+  distinct(ENCOUNTER_NO,FACILITY_MSX,SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC,ADMIT_TYPE_DESC_SRC,PRINCIPAL_SURGEON_NAME_MSX, .keep_all = TRUE)
 
 
 # dropping unnecessary columns
@@ -95,21 +95,21 @@ baseline <- baseline %>%
 
 # *****************************  CONSTRUCTION OF SERVICE TABLE *****************************
 service_table <- baseline %>%
-  count(FACILITY_MSX, SERVICE_GROUP,VERITY_DIV_DESC_SRC,ADMIT_TYPE_DESC_SRC, name = "n") %>%
-  group_by(FACILITY_MSX, SERVICE_GROUP, VERITY_DIV_DESC_SRC) %>%
+  count(FACILITY_MSX, SERVICE_GROUP,PRINCIPAL_SURGEON_VERITY_DIV_DESC,ADMIT_TYPE_DESC_SRC, name = "n") %>%
+  group_by(FACILITY_MSX, SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC) %>%
   mutate(
     total_in_service = sum(n),
     Percentage = 100 * n / total_in_service   
   ) %>%
   ungroup() %>%
-  select(FACILITY_MSX, SERVICE_GROUP, VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC, Percentage)
+  select(FACILITY_MSX, SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC, ADMIT_TYPE_DESC_SRC, Percentage)
 
 
 
 # calculating avg patients/day for service table
 service_table_patient_avg <- patients_per_day_baseline %>%
-  count(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP, VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC, name = "n") %>%
-  group_by(FACILITY_MSX, VERITY_DIV_DESC_SRC, SERVICE_GROUP,ADMIT_TYPE_DESC_SRC) %>%
+  count(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC, ADMIT_TYPE_DESC_SRC, name = "n") %>%
+  group_by(FACILITY_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC, SERVICE_GROUP,ADMIT_TYPE_DESC_SRC) %>%
   mutate(total_in_service = sum(n)) %>%
   select(-SERVICE_DATE, -n) %>%
   distinct() %>%
@@ -120,31 +120,31 @@ service_table_patient_avg <- patients_per_day_baseline %>%
 
 
 # join the two
-service_table <- left_join(service_table, service_table_patient_avg, by = c("FACILITY_MSX", "SERVICE_GROUP","VERITY_DIV_DESC_SRC", "ADMIT_TYPE_DESC_SRC"))
+service_table <- left_join(service_table, service_table_patient_avg, by = c("FACILITY_MSX", "SERVICE_GROUP","PRINCIPAL_SURGEON_VERITY_DIV_DESC", "ADMIT_TYPE_DESC_SRC"))
 
-#swich locations of VERITY_DIV_DESC_SRC and SERVICE_GROUP for aesthetics
+#swich locations of PRINCIPAL_SURGEON_VERITY_DIV_DESC and SERVICE_GROUP for aesthetics
 service_table <- service_table %>%
-  select(FACILITY_MSX, VERITY_DIV_DESC_SRC, SERVICE_GROUP, everything())
+  select(FACILITY_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC, SERVICE_GROUP, everything())
 
 
 
 
 #   ***************************** CONSTRUCTION OF SURGEON TABLE   *****************************
 surgeon_table <- baseline %>%
-  group_by(FACILITY_MSX, SERVICE_GROUP, VERITY_DIV_DESC_SRC, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
+  group_by(FACILITY_MSX, SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC) %>%
   summarise(ROW_COUNT_BY_ADMIT_TYPE = n(), .groups = "drop_last") %>%
   mutate(Percentage = 100 * ROW_COUNT_BY_ADMIT_TYPE / sum(ROW_COUNT_BY_ADMIT_TYPE)) %>%  
   ungroup() %>%
   arrange(PRINCIPAL_SURGEON_NAME_MSX) %>%
-  select(FACILITY_MSX, SERVICE_GROUP, VERITY_DIV_DESC_SRC, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC, Percentage)
+  select(FACILITY_MSX, SERVICE_GROUP, PRINCIPAL_SURGEON_VERITY_DIV_DESC, PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC, Percentage)
 
 
 
 
 # calculating avg patients/day for surgeon table
 surgeon_table_patient_avg_2 <- patients_per_day_baseline %>%
-  count(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP, PRINCIPAL_SURGEON_NAME_MSX, VERITY_DIV_DESC_SRC, ADMIT_TYPE_DESC_SRC,name = "n") %>%
-  group_by(FACILITY_MSX, VERITY_DIV_DESC_SRC,PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC ,SERVICE_GROUP) %>%
+  count(FACILITY_MSX, SERVICE_DATE, SERVICE_GROUP, PRINCIPAL_SURGEON_NAME_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC, ADMIT_TYPE_DESC_SRC,name = "n") %>%
+  group_by(FACILITY_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC,PRINCIPAL_SURGEON_NAME_MSX, ADMIT_TYPE_DESC_SRC ,SERVICE_GROUP) %>%
   mutate(total_in_service = sum(n)) %>%
   select (-SERVICE_DATE,-n) %>%
   distinct() %>%
@@ -153,20 +153,20 @@ surgeon_table_patient_avg_2 <- patients_per_day_baseline %>%
 
 
 # join the two
-surgeon_table <- left_join(surgeon_table, surgeon_table_patient_avg_2, by = c("FACILITY_MSX", "SERVICE_GROUP","PRINCIPAL_SURGEON_NAME_MSX","VERITY_DIV_DESC_SRC", "ADMIT_TYPE_DESC_SRC"))
+surgeon_table <- left_join(surgeon_table, surgeon_table_patient_avg_2, by = c("FACILITY_MSX", "SERVICE_GROUP","PRINCIPAL_SURGEON_NAME_MSX","PRINCIPAL_SURGEON_VERITY_DIV_DESC", "ADMIT_TYPE_DESC_SRC"))
 
-#switch locations of VERITY_DIV_DESC_SRC and SERVICE_GROUP for aesthetics
+#switch locations of PRINCIPAL_SURGEON_VERITY_DIV_DESC and SERVICE_GROUP for aesthetics
 surgeon_table <- surgeon_table %>%
-  select(FACILITY_MSX, VERITY_DIV_DESC_SRC, SERVICE_GROUP, everything())
+  select(FACILITY_MSX, PRINCIPAL_SURGEON_VERITY_DIV_DESC, SERVICE_GROUP, everything())
 
 
 
 
 hospital_choices <- surgeon_table %>% select(FACILITY_MSX) %>% summarise(HOSPITAL = unique(FACILITY_MSX))
-service_choices <- surgeon_table %>% select(VERITY_DIV_DESC_SRC) %>% summarise(SERVICE = unique(VERITY_DIV_DESC_SRC))
+service_choices <- surgeon_table %>% select(PRINCIPAL_SURGEON_VERITY_DIV_DESC) %>% summarise(SERVICE = unique(PRINCIPAL_SURGEON_VERITY_DIV_DESC))
 
 hospital_choices <- sort(unique(surgeon_table$FACILITY_MSX))
-service_choices  <- sort(unique(surgeon_table$VERITY_DIV_DESC_SRC))
+service_choices  <- sort(unique(surgeon_table$PRINCIPAL_SURGEON_VERITY_DIV_DESC))
 
 
 
@@ -265,7 +265,7 @@ server <- function(input, output,session) {
       filter(FACILITY_MSX %in% input$dropdown1)
     
     picker_choices <- df %>%
-      pull(VERITY_DIV_DESC_SRC) %>%
+      pull(PRINCIPAL_SURGEON_VERITY_DIV_DESC) %>%
       unique() %>%
       sort()
     
@@ -280,7 +280,7 @@ server <- function(input, output,session) {
   # SERVICE_OUTPUT
   output$service_output <- DT::renderDataTable({
     output_table <- service_table %>% 
-      filter(FACILITY_MSX %in% input$dropdown1, VERITY_DIV_DESC_SRC %in% input$dropdown2)
+      filter(FACILITY_MSX %in% input$dropdown1, PRINCIPAL_SURGEON_VERITY_DIV_DESC %in% input$dropdown2)
     
     if (nrow(output_table) == 0) {
       return(
@@ -298,7 +298,7 @@ server <- function(input, output,session) {
     col_map <- c(
       FACILITY_MSX = "Hospital",
       SERVICE_GROUP = "Unit Type",
-      VERITY_DIV_DESC_SRC = "Service Line",
+      PRINCIPAL_SURGEON_VERITY_DIV_DESC = "Service Line",
       ADMIT_TYPE_DESC_SRC = "Admit Type",
       PERCENTAGE = "Percentage",
       AVG_PATIENTS_DAY = "AVG Patients/Day"
@@ -348,7 +348,7 @@ server <- function(input, output,session) {
   # SURGEON_OUTPUT
   output$surgeon_output <- DT::renderDataTable({
     output_table <- surgeon_table %>% 
-      filter(FACILITY_MSX %in% input$dropdown1, VERITY_DIV_DESC_SRC %in% input$dropdown2)
+      filter(FACILITY_MSX %in% input$dropdown1, PRINCIPAL_SURGEON_VERITY_DIV_DESC %in% input$dropdown2)
     
     if (nrow(output_table) == 0) {
       return(
@@ -367,7 +367,7 @@ server <- function(input, output,session) {
     col_map <- c(
       FACILITY_MSX = "Hospital",
       SERVICE_GROUP = "Unit Type",
-      VERITY_DIV_DESC_SRC = "Service Line",
+      PRINCIPAL_SURGEON_VERITY_DIV_DESC = "Service Line",
       PRINCIPAL_SURGEON_NAME_MSX = "Primary Surgeon",
       ADMIT_TYPE_DESC_SRC = "Admit Type",
       PERCENTAGE = "Percentage",

@@ -7,6 +7,10 @@ date: "`r Sys.Date()`"
 # set knitr options
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
                       message = FALSE, fig.width = 9, fig.height = 5)
+
+# Sinai color scheme
+mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
+                 "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
 ```
 
 # Ip Demand
@@ -45,16 +49,15 @@ ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = 
 ```{r total utilization}
 total_utilization <- ip_comparison_daily %>%
   group_by(FACILITY_MSX, SERVICE_DATE) %>%
-  summarise(BASELINE = sum(DAILY_DEMAND_BASELINE, na.rm = TRUE)/sum(AVG_BED_CAPACITY, na.rm = TRUE),
-            SCENARIO = sum(DAILY_DEMAND_SCENARIO, na.rm = TRUE)/sum(AVG_BED_CAPACITY, na.rm = TRUE)) %>%
-  mutate(SERVICE_DATE = as.Date(SERVICE_DATE)) %>%
+  summarise(BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
+            SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
   pivot_longer(cols = c(BASELINE, SCENARIO),
                names_to = "Dataset",
                values_to = "Utilization")
 
 
 ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset)) +
-  geom_smooth(method = "loess", se = FALSE, span = 0.06, linewidth = 1) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.05, linewidth = 1) +
   geom_hline(yintercept = .85, color = "black", linetype = "solid", linewidth = 0.7) +
   facet_wrap(~ FACILITY_MSX) +
   scale_y_continuous(labels = scales::percent) +
@@ -70,7 +73,8 @@ ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset
         axis.text.x = element_text(angle = 45, hjust = 1),
         legend.title = element_text(size = 12),
         legend.text = element_text(size = 8),
-        strip.text = element_text(size = 12, face = "bold"))
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.spacing = unit(1.5, "lines"))
 ```
 
 ## Baseline vs. Scenario IP Utilization
@@ -134,7 +138,7 @@ geom_hline(yintercept = 0.95, color = "black", linewidth = 1.2) +
 facet_wrap(~ FACILITY_MSX) +
 scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1.3)) +
 scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-scale_color_manual(name = "Service Group", values = mshs_colors) +   
+#scale_color_manual(name = "Service Group", values = mshs_colors) +   
 labs(
   title = "Daily Utilization (Scenario)",
   x = "Service Date",

@@ -143,6 +143,15 @@ for (i in 1:p) {
     render(input = "model/model-visualizations.Rmd",
            output_file = html_output_path)
   }
+  html_output_path <- file.path(cap_dir, "Model Outputs/Workbooks",
+                                paste0("model-visualizations-",
+                                       hospitals[[1]], services[[1]], "-",
+                                       hospitals[[2]], services[[2]], "_",
+                                       percentage_to_hosp1 * 100, "-",
+                                       percentage_to_hosp2 * 100, "_",
+                                       Sys.Date(), ".html"))
+  render(input = "model-visualizations.Rmd",
+         output_file = html_output_path)
 }
 
 # Save Workbook ----------------------------------------------------------------

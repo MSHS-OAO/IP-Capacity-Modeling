@@ -22,9 +22,16 @@ BEGIN
              SERVICE_DATE BETWEEN 20240601 AND 20250630
    ),
    service_group AS (
-       SELECT *
+       SELECT
+           DEPARTMENT_ID,
+           EXTERNAL_NAME,
+           CASE
+               WHEN EXTERNAL_NAME = 'MSH CSDU KCC 6 North' THEN 'Heart'
+               ELSE SERVICE_GROUP
+               END AS SERVICE_GROUP,
+           RPT_GRP_TWENTYTHREE
        FROM DASHBD_USER.CLARITY_DEP_REF
-       WHERE EXTERNAL_NAME not in ('MSW MAIN 11NU', 'MSW Main 12A (L&D)')
+       WHERE EXTERNAL_NAME NOT IN ('MSW MAIN 11NU', 'MSW Main 12A (L&D)')
    ),
    cpt AS (
        SELECT CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT
@@ -34,6 +41,10 @@ BEGIN
    billing_cat AS (
        SELECT *
        FROM IPCAP_BILLING_CAT_DESC
+   ),
+   principal_surgeon AS (
+       SELECT *
+       FROM MSX_PROVIDER_V
    ),
    final AS (
        SELECT ip.ENCOUNTER_NO,
@@ -46,17 +57,21 @@ BEGIN
               ip.LOS_NO_SRC,
               ip.ATTENDING_MD_CD_SRC,
               ip.ATTENDING_MD_NAME_MSX,
+              ip.VERITY_DEPT_CD_SRC AS ATTENDING_VERITY_DEPT_CD,
+              ip.VERITY_DEPT_DESC_SRC AS ATTENDING_VERITY_DEPT_DESC,
+              ip.VERITY_DIV_CD_SRC AS ATTENDING_VERITY_DIV_CD,
+              ip.VERITY_DIV_DESC_SRC AS ATTENDING_VERITY_DIV_DESC,
+              ip.VERITY_REPORT_SERVICE_MSX AS ATTENDING_VERITY_REPORT_SERVICE,
               ip.PRINCIPAL_SURGEON_CD_SRC,
               ip.PRINCIPAL_SURGEON_NAME_MSX,
+              principal_surgeon.VERITY_DEPT_1_DESC_SRC as PRINCIPAL_SURGEON_VERITY_DEPT_DESC,
+              principal_surgeon.VERITY_DIV_DESC_SRC as PRINCIPAL_SURGEON_VERITY_DIV_DESC,
               ip.MSDRG_CD_SRC,
               ip.MSDRG_DESC_MSX,
               ip.ADMIT_TYPE_CD_SRC,
               ip.ADMIT_TYPE_DESC_SRC,
-              ip.P_AVG_LOS_MSDRG,
-              ip.VERITY_DEPT_CD_SRC,
-              ip.VERITY_DEPT_DESC_SRC,
-              ip.VERITY_DIV_CD_SRC,
-              ip.VERITY_DIV_DESC_SRC,
+              ip.VIZ_EX_LOS,
+              ip.SERVICE_DESC_MSX,
               charge.FACILITY_ABBR,
               charge.COST_CENTER_C,
               charge.CHARGE_C,
@@ -85,6 +100,8 @@ BEGIN
          ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
        LEFT JOIN cpt
          ON charge.CPT_HCPCS_C = cpt.CPT
+       LEFT JOIN principal_surgeon
+         ON ip.PRINCIPAL_SURGEON_CD_SRC = principal_surgeon.MSH_PROV_CD
        LEFT JOIN billing_cat
          ON charge.BILLING_CAT_DESC = billing_cat.BILLING_CAT_DESC
    )

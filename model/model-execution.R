@@ -23,31 +23,33 @@ cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optim
 
 # Scenario Parameters ----------------------------------------------------------
 # set hospitals in scenario
-hospitals <- list(
-  "MSH",
-  "MSM"
-)
-#hospitals <- NULL
+#hospitals <- list(
+#  "MSH",
+#  "MSM")
+hospitals <- NULL
 
 # set of services to be swapped in scenario
-services <- list(
-  "CARDIOVASCULAR SURGERY",
-  "VASCULAR SURGERY")
-#services <- NULL 
+#services <- list(
+#  "CARDIOVASCULAR SURGERY",
+#  "VASCULAR SURGERY")
+services <- NULL 
 
 # how the rerouted service group should be distributed at destination hospital
-reroute_service_group_percent <- list(
-  c("Med Surg" = 0.80,
-    "Critical Care" = 0.20),
-  c("Heart" = 0.65,
-    "Critical Care" = 0.35))
-#reroute_service_group_percent <- NULL 
+#reroute_service_group_percent <- list(
+#  c("Med Surg" = 0.80,
+#    "Critical Care" = 0.20),
+#  c("Heart" = 0.65,
+#    "Critical Care" = 0.35))
+reroute_service_group_percent <- NULL 
 
 # file with unit capacity adjustments
 unit_capacity_adjustments <- "tisch_cancer_center.csv"
 
 # file with volume projections
 vol_projections_file <- "2026_budget_volume.csv"
+
+# file with los adjustments
+los_projections_file <- "los_adjustments_2025Q4.csv"
 
 # emergency exclusions
 exclusion_hosp1 <- TRUE
@@ -84,8 +86,9 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 # Render Models ----------------------------------------------------------------
 
 # load all functions
-source("functions/emergency_exclusion.R")
 source("functions/location_swap.R")
+source("functions/emergency_exclusion.R")
+source("functions/los_adjustment.R")
 source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")

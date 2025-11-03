@@ -55,6 +55,7 @@ BEGIN
               ip.ADMIT_DT_SRC,
               ip.ADMIT_TIME_SRC,
               ip.LOS_NO_SRC,
+              ip.UNIT_DESC_MSX,
               ip.ATTENDING_MD_CD_SRC,
               ip.ATTENDING_MD_NAME_MSX,
               ip.VERITY_DEPT_CD_SRC AS ATTENDING_VERITY_DEPT_CD,

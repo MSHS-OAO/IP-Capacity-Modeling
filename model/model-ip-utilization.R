@@ -22,7 +22,7 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
       "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
     )
     
-    # adjust scenario demand based on volume projections
+    # adjust scenario demand based on volume and LOS projections
     daily_demand <- lapply(names(datasets_processed), function(dataset) {
       
       # load dataset based on name of list element
@@ -31,25 +31,38 @@ ip_utilization_model <- function(generator,n_simulations, hospitals, services, p
       # get daily demand by service line and service group
       df <- df %>%
         filter(!is.na(EXTERNAL_NAME)) %>%
-        group_by(ENCOUNTER_NO, FACILITY_MSX, VERITY_REPORT_SERVICE_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+        group_by(ENCOUNTER_NO, MSDRG_CD_SRC, FACILITY_MSX, ATTENDING_VERITY_REPORT_SERVICE, 
+                 UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
+                 SERVICE_DATE, LOS_NO_SRC) %>%
         summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
         mutate(BED_CHARGES = case_when(
           BED_CHARGES > 1 ~ 1,
-          TRUE ~ BED_CHARGES)) %>%
-        group_by(FACILITY_MSX, VERITY_REPORT_SERVICE_MSX, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+          TRUE ~ BED_CHARGES)) 
+      
+      # project changes in LOS
+      if(dataset == "scenario" & !is.na(vol_projections_file)) {
+        df <- los_reduction_sim(df)
+      } else {
+        df <- df
+      }
+      
+      # get total daily volume for each service line and unit type
+      df <- df %>%
+        group_by(FACILITY_MSX, ATTENDING_VERITY_REPORT_SERVICE, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
         summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop")
       
       # project volumes for scenario dataset
       if (dataset == "scenario" & !is.na(vol_projections_file)) {
         df <- df %>%
-          mutate(UNIQUE_ID = paste0(FACILITY_MSX, VERITY_REPORT_SERVICE_MSX)) %>%
+          mutate(UNIQUE_ID = paste0(FACILITY_MSX, ATTENDING_VERITY_REPORT_SERVICE)) %>%
           left_join(read_csv(paste0(cap_dir, "Mapping Info/volume projections/", vol_projections_file),
                              show_col_types = FALSE),
                     by = c("UNIQUE_ID" = "UNIQUE_ID")) %>%
           mutate(DAILY_DEMAND = DAILY_DEMAND + DAILY_DEMAND*PERCENT)
       } else {
-          df <- df
-        }
+        df <- df
+      }
+      
     })
     names(daily_demand) <- names(datasets_processed)
     

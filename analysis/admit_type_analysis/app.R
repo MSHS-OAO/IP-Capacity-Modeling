@@ -66,7 +66,7 @@ dbDisconnect(conn)
 #calculating period in dataset in days
 min_date <- min(baseline$SERVICE_DATE)
 max_date <- max(baseline$SERVICE_DATE)
-diff_days <- as.numeric(difftime(max_date, min_date, units = "days"))
+diff_days <- as.numeric(difftime(max_date, min_date, units = "days")) + 1
 
 
 

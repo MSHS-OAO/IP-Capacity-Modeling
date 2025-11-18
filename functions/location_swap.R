@@ -1,4 +1,4 @@
-location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percentage_to_hosp2 = 0.9) {
+location_swap <- function(hospitals, services,percentage_to_hosp1,percentage_to_hosp2) {
   
   # scenario data staged as replica of baseline
   scenario <- baseline 
@@ -7,13 +7,13 @@ location_swap <- function(hospitals, services, percentage_to_hosp1 = 0.9, percen
     # identify row indexes where patient is at hospial 1 and is in service line 2
     hosp_1_indexes <- emergency_exclusion(
       indexes = which(baseline$FACILITY_MSX == hospitals[[1]]&
-                        baseline$VERITY_DIV_DESC_SRC %in% services[[2]]),
+                        baseline$ATTENDING_VERITY_DIV_DESC %in% services[[2]]),
       exclusion = exclusion_hosp1)
     
     # identify row indexes where patient is at hospial 2 and is in service line 1
     hosp_2_indexes <- emergency_exclusion(
-      index = which(baseline$FACILITY_MSX == hospitals[[2]]&
-                      baseline$VERITY_DIV_DESC_SRC %in% services[[1]]),
+      indexes = which(baseline$FACILITY_MSX == hospitals[[2]]&
+                      baseline$ATTENDING_VERITY_DIV_DESC %in% services[[1]]),
       exclusion = exclusion_hosp2)
     
     # take percent sample of full list of scenario indedxes and place index samples in list to prep for loop

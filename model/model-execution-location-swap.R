@@ -97,11 +97,11 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 utilizations <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
-for (i in 1:length(percentage_to_hosp1_list) {
+for (i in 1:length(percentage_to_hosp1_list)) {
   print(paste0("Running scenario ", i, "/", p))
   
   # specify num of simulations
-  n_simulations = 5
+  n_simulations = 2
 
   # define global percentage_to_hosp1 and percentage_to_hosp2 here
   percentage_to_hosp1 <- ifelse(is.null(percentage_to_hosp1_list), 1, percentage_to_hosp1_list[i])

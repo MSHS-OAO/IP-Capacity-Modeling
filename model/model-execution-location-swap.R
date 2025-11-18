@@ -96,12 +96,8 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 # run code for IP_Utilization
 utilizations <- list()
 
-# determine if scenario is a location_swap
-n <- ifelse(is.null(hospitals), 1, length(hospitals))
-p <- ifelse(is.null(percentage_to_hosp1_list), 1, length(percentage_to_hosp1_list))
-
 # -------------------------------------------------------- Execute model --------------------------------------------------------
-for (i in 1:p) {
+for (i in 1:length(percentage_to_hosp1_list) {
   print(paste0("Running scenario ", i, "/", p))
   
   # specify num of simulations
@@ -128,16 +124,11 @@ for (i in 1:p) {
   ip_comparison_daily = results$ip_comparison_daily
   
   # save utilizations outputs in list to loop through for workbook saving
-  if (n == 1) {
-    utilizations[["MSHS IP Utilization"]] <- ip_utilization_output
-  } else {
     list_name <- paste0(hospitals[[1]], percentage_to_hosp2_list[i] * 100, " - ",
                         hospitals[[2]], percentage_to_hosp1_list[i] * 100)
     utilizations[[list_name]] <- ip_utilization_output
-  }
   
   # visualization script
-
 html_output_path <- paste0(cap_dir, "Model Outputs/Visualizations/",
                                "model-visualizations-", 
                                hospitals[[1]], services[[1]], "-",

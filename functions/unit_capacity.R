@@ -23,7 +23,10 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
       EXTERNAL_NAME = Unit) %>%
     group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH) %>%
     summarise(DATASET = "BASELINE",
-              BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE))
+              BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE)) %>%
+    mutate(SERVICE_GROUP = 
+             case_when(EXTERNAL_NAME == "MSH CSDU KCC 6 North" ~ "Heart",
+                       TRUE ~ SERVICE_GROUP))
   
   # create duplicate df for scenario and bind it to the basline bed cap
   bed_cap_scenario <- bed_cap %>% mutate(DATASET = "SCENARIO")

@@ -1,0 +1,220 @@
+---
+title: "model-visualizations"
+output: html_document
+date: "`r Sys.Date()`"
+---
+```{r}
+# set knitr options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, 
+                      message = FALSE, fig.width = 9, fig.height = 5)
+
+# Sinai color scheme
+mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
+                 "#800080", "#FFFF00", "#CC0000", "#38761D", "#F39C12")
+```
+
+# Ip Demand
+## Bed Charges by Hospital Over Time
+```{r hosp bed charges trend}
+
+# trend bed charges (total) over time
+run_rate <- baseline %>%
+  filter(BILLING_CAT_DESC == 'BED CHARGES') %>%
+  group_by(FACILITY_MSX, SERVICE_DATE) %>%
+  summarise(count = n()) %>%
+  collect() %>%
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, "%Y%m%d"))
+
+ggplot(run_rate, aes(x = SERVICE_DATE, y = count, color = FACILITY_MSX, group = FACILITY_MSX)) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.05, linewidth = 1.2, alpha = 0.9) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_color_manual(values = mshs_colors) +
+  labs(
+    title = "Bed Charge by Hospital Over Time",
+    x = "Service Date",
+    y = "Count",
+    color = "Hospital"
+  ) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        strip.text = element_text(size = 12, face = "bold"))
+```
+
+# IP Utilization
+## Total Utilization Baseline vs. Scenario
+```{r total utilization}
+total_utilization <- ip_comparison_daily %>%
+  group_by(FACILITY_MSX, SERVICE_DATE) %>%
+  summarise(BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
+            SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
+  pivot_longer(cols = c(BASELINE, SCENARIO),
+               names_to = "Dataset",
+               values_to = "Utilization")
+
+
+ggplot(total_utilization, aes(x = SERVICE_DATE, y = Utilization, color = Dataset)) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.05, linewidth = 1) +
+  geom_hline(yintercept = .85, color = "black", linetype = "solid", linewidth = 0.7) +
+  facet_wrap(~ FACILITY_MSX) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_color_manual(values = mshs_colors) + 
+  labs(title = "Utilization Over Time by Hospital",
+       x = "Service Date",
+       y = "Utilization",
+       color = "Dataset") +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 8),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.spacing = unit(1.5, "lines"))
+```
+
+## Baseline vs. Scenario IP Utilization
+```{r baseline vs. scenario}
+
+# get list of service groups effected by scenario
+service_change <- ip_comparison_total %>%
+  filter(AVG_UTILIZATION_BASELINE != AVG_UTILIZATION_SCENARIO) %>%
+  ungroup() %>%
+  distinct(SERVICE_GROUP) %>%
+  pull()
+
+# prep data from graph
+results_long <- ip_comparison_monthly %>%
+  filter(SERVICE_GROUP %in% service_change) %>%
+  pivot_longer(
+    cols = c(AVG_UTILIZATION_BASELINE, AVG_UTILIZATION_SCENARIO),
+    names_to = "Scenario",
+    values_to = "Utilization") %>%
+  mutate(
+    SERVICE_MONTH = as.Date(SERVICE_MONTH),
+    Scenario = case_when(
+      Scenario == "AVG_UTILIZATION_BASELINE" ~ "Baseline",
+      Scenario == "AVG_UTILIZATION_SCENARIO" ~ "Scenario"),
+    Utilization = case_when(
+      Scenario == "Scenario" & is.na(Utilization) ~ 1,
+      TRUE ~ Utilization))
+
+# Plot
+ggplot(results_long, aes(x = SERVICE_MONTH, y = Utilization, fill = Scenario)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_hline(yintercept = .85, color = "black", linetype = "solid", linewidth = 0.7) +
+  scale_y_continuous(limits = c(0, 1.5), labels = scales::percent) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_fill_manual(values = mshs_colors) + 
+  facet_grid(FACILITY_MSX ~ SERVICE_GROUP) +
+  labs(title = "Inpatient Utilization Comparison",
+       x = "Service Month",
+       y = "Utilization",
+       fill = "Dataset") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+        strip.text = element_text(face = "bold"))
+```
+
+## Daily Scenario IP Utilization
+```{r scenario utilization}
+
+# Plot
+ggplot(ip_comparison_daily %>%
+         mutate(SERVICE_DATE = as.Date(SERVICE_DATE)), 
+       aes(x = SERVICE_DATE,
+           y = UTILIZATION_SCENARIO,
+           color = SERVICE_GROUP,
+           group = SERVICE_GROUP)
+       ) +
+geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2) +
+geom_hline(yintercept = 0.95, color = "black", linewidth = 1.2) +
+facet_wrap(~ FACILITY_MSX) +
+scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1.3)) +
+scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+#scale_color_manual(name = "Service Group", values = mshs_colors) +   
+labs(
+  title = "Daily Utilization (Scenario)",
+  x = "Service Date",
+  y = "Utilization (Scenario)"
+) +
+theme_minimal() +
+theme(
+  legend.position = "bottom",
+  plot.title = element_text(hjust = 0.5),
+  axis.text.x = element_text(angle = 45, hjust = 1),
+  strip.text = element_text(face = "bold"),
+  panel.border = element_rect(color = "black", fill = NA)
+)
+```
+
+# Lab & Rad
+## Daily Lab Demand
+```{r lab daily trend}
+
+# # data
+# results_lab <- lab_rad_demand %>%
+#   filter(FACILITY_MSX %in% hospitals,
+#          CATEGORY == "LAB") %>%
+#   group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
+#   summarise(DEMAND = sum(DEMAND)) %>%
+#   mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+# 
+# # visualization
+# ggplot(results_lab, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
+#   geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
+#   facet_grid(~ FACILITY_MSX, scales = "free_y") +
+#   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+#   scale_color_manual(values = mshs_colors) +
+#   labs(
+#     title = "Baseline vs. Scenario Lab Demand",
+#     x = "Date",
+#     y = "Demand",
+#     color = "Dataset"
+#   ) +
+#   theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+#         axis.title = element_text(size = 14),
+#         axis.text = element_text(size = 12),
+#         axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.title = element_text(size = 14),
+#         legend.text = element_text(size = 12),
+#         strip.text = element_text(size = 14, face = "bold"))
+```
+
+## Daily Radiology Demand
+```{r rad daily trend}
+
+# data
+# results_rad <- lab_rad_demand %>%
+#   filter(FACILITY_MSX %in% hospitals,
+#          CATEGORY == "RAD") %>%
+#   group_by(FACILITY_MSX, SERVICE_DATE, DATASET) %>%
+#   summarise(DEMAND = sum(DEMAND)) %>%
+#   mutate(SERVICE_DATE = as.Date(SERVICE_DATE))
+# 
+# # visualization
+# ggplot(results_rad, aes(x = SERVICE_DATE, y = DEMAND, color = DATASET, group = DATASET)) +
+#   geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 1.2, alpha = 0.9) +
+#   facet_grid(~ FACILITY_MSX, scales = "free_y") +
+#   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+#   scale_color_manual(values = mshs_colors) +
+#   labs(
+#     title = "Baseline vs. Scenario Radiology Demand",
+#     x = "Date",
+#     y = "Demand",
+#     color = "Dataset"
+#   ) +
+#   theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+#         axis.title = element_text(size = 14),
+#         axis.text = element_text(size = 12),
+#         axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.title = element_text(size = 14),
+#         legend.text = element_text(size = 12),
+#         strip.text = element_text(size = 14, face = "bold"))
+```

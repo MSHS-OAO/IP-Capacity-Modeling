@@ -14,23 +14,13 @@ library(openxlsx)
 library(readxl)
 library(rmarkdown)
 
-# Functions & Constants --------------------------------------------------------
+# -------------------------------------------------------- Functions & Constants --------------------------------------------------------
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+
 # capacity modeling path
 cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
-
-# Scenario Parameters ----------------------------------------------------------
-
-# file with unit capacity adjustments
-unit_capacity_adjustments <- "tisch_cancer_center.csv"
-
-# file with volume projections
-vol_projections_file <- "2026_budget_volume.csv"
-
-# file with los adjustments
-los_projections_file <- "los_adjustments_2025Q4.csv"
 
 # Load Baseline Data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
@@ -45,13 +35,8 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       TRUE ~ FACILITY_MSX
     )
   )
-num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
-                                min(baseline$SERVICE_DATE), 
-                                units = "days")) + 1
-weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
-num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 
-# Render Models ----------------------------------------------------------------
+#  ---------------------------------------------------------------- Render Models ----------------------------------------------------------------
 
 # load all functions
 source("functions/los_adjustment.R")
@@ -62,16 +47,30 @@ source("functions/save_parameters.R")
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
 
+# ---------------------------------------------------------- Scenario Parameters ----------------------------------------------------------
+
+# file with unit capacity adjustments
+unit_capacity_adjustments <- "tisch_cancer_center.csv"
+
+# file with volume projections
+vol_projections_file <- "2026_budget_volume.csv"
+
+# file with los adjustments
+los_projections_file <- "los_adjustments_2025Q4.csv"
+
+# calculate # of weekdays and # of all days in dataset
+num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
+                                min(baseline$SERVICE_DATE), 
+                                units = "days")) + 1
+weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
+num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
+
 # run code for IP_Utilization
 utilizations <- list()
 
+# -------------------------------------------------------- Execute model --------------------------------------------------------
 results <- ip_utilization_model (
-  generator = location_swap,
-  n_simulations = n_simulations,
-  hospitals = hospitals, 
-  services = services, 
-  percentage_to_hosp1 = ifelse(is.null(percentage_to_hosp1_list), 1, percentage_to_hosp1_list[i]),
-  percentage_to_hosp2 = ifelse(is.null(percentage_to_hosp2_list), 1, percentage_to_hosp2_list[i])
+  generator = projections
 )
 
 # Unpack values from IP result list
@@ -86,7 +85,7 @@ render(input = "model/model-visualizations.Rmd",
        output_file = paste0(cap_dir, "Model Outputs/Visualizations/",
                             "MSHS_IP_Utilization_", Sys.Date(), ".html"))
 
-# Save Workbook ----------------------------------------------------------------
+# -------------------------------------------------------- Save Workbook ----------------------------------------------------------------
 # create excel workbook for model outputs
 wb <- createWorkbook()
 

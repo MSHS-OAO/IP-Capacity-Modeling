@@ -11,20 +11,20 @@ BEGIN
        WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' OR
-              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31') AND
+       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30' OR
+              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30') AND
               FACILITY_MSX <> 'MSSN'
        ), proc AS (
            SELECT *
            FROM MSX_IP_PROC
            WHERE ENCOUNTER_NO in (select ENCOUNTER_NO from ip)
-       ), surgeon AS (
-           SELECT *
-           FROM IPCAP_PROVIDERS
        ), procedures AS (
            SELECT *
            FROM IPCAP_PROCEDURE_MAPPING
            WHERE ICD_CODE in (select SEC_PROC_CD from proc)
+       ), surgeon as (
+           SELECT *
+           FROM MSX_PROVIDER_V
        ), final AS (
            SELECT ip.ENCOUNTER_NO,
                   ip.MSMRN,
@@ -58,7 +58,7 @@ BEGIN
                   surgeon.VERITY_DIV_DESC_SRC as SURGEON_VERITY_DIV_DESC
            FROM ip
            LEFT JOIN proc on ip.ENCOUNTER_NO = proc.ENCOUNTER_NO
-           LEFT JOIN surgeon on proc.PROC_SURGEON = surgeon.PROC_SURGEON
+           LEFT JOIN surgeon on proc.PROC_NPI = surgeon.NPI
            LEFT JOIN procedures on proc.SEC_PROC_CD = procedures.ICD_CODE
        )
        select * from final;

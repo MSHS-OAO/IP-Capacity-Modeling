@@ -1,4 +1,4 @@
-ip_utilization_model <- function(generator, n_simulations = 1) 
+ip_utilization_model <- function(generator = "", n_simulations = 1) 
 {
   
   # loop through each iteration
@@ -11,19 +11,17 @@ ip_utilization_model <- function(generator, n_simulations = 1)
     bed_cap <- unit_capacity(unit_capacity_adjustments)
     
     # read in processed data from data refresh script
-    if (identical(generator, location_swap)){
-    datasets_processed <- list(
-      "baseline" = baseline,
-      "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2)
-    )
-    }
-    else if (identical(generator,projections)){
+    if (generator == "location_swap"){
+      generator <- location_swap
       datasets_processed <- list(
-      "baseline" = baseline,
-      "scenario" = baseline)
+        "baseline" = baseline,
+        "scenario" = generator(hospitals, services, percentage_to_hosp1, percentage_to_hosp2))
+    } else {
+      datasets_processed <- list(
+        "baseline" = baseline,
+        "scenario" = baseline)
     }
 
-    
     # adjust scenario demand based on volume and LOS projections
     daily_demand <- lapply(names(datasets_processed), function(dataset) {
       
@@ -83,7 +81,7 @@ ip_utilization_model <- function(generator, n_simulations = 1)
         collect() %>%
         left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
                                   "SERVICE_GROUP" = "SERVICE_GROUP",
-                                  "SERVICE_MONTH" = "SERVICE_MONTH")) 
+                                  "SERVICE_DATE" = "SERVICE_DATE")) 
       
       # calculate utilization based on baseline/scenario bed capacity
       if (dataset == "baseline") {

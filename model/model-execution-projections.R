@@ -69,9 +69,7 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 utilizations <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
-results <- ip_utilization_model (
-  generator = projections
-)
+results <- ip_utilization_model()
 
 # Unpack values from IP result list
 ip_utilization_output = results$ip_utilization_output
@@ -91,6 +89,9 @@ wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
 save_parameters()
+
+add_to_wb(df = utilizations[["MSHS IP Utilization"]],
+          sheetname = "MSHS IP Utilization")
 
 saveWorkbook(wb,
              file = paste0(cap_dir, "Model Outputs/Workbooks/",

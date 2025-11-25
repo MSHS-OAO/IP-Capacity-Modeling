@@ -98,7 +98,7 @@ utilizations <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 for (i in 1:length(percentage_to_hosp1_list)) {
-  print(paste0("Running scenario ", i, "/", p))
+  print(paste0("Running scenario ", i, "/", length(percentage_to_hosp1_list)))
   
   # specify num of simulations
   n_simulations = 2
@@ -113,7 +113,7 @@ for (i in 1:length(percentage_to_hosp1_list)) {
   }
   
   results <- ip_utilization_model (
-    generator = location_swap,
+    generator = "location_swap",
     n_simulations = n_simulations
   )
   
@@ -146,7 +146,7 @@ html_output_path <- paste0(cap_dir, "Model Outputs/Visualizations/",
 wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
-save_parameters()
+save_parameters(generator = "location_swap")
 
 # create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {

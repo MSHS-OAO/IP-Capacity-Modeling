@@ -1,7 +1,7 @@
-save_parameters <- function() {
+save_parameters <- function(generator = "") {
   
   # check if sim was a location swap
-  if (!is.null(hospitals)) {
+  if (generator == "location_swap") {
     parameters <- data.frame(
       "Hospital" = c(hospitals[[2]],
                      hospitals[[1]]),

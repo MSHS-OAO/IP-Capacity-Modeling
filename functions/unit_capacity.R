@@ -1,16 +1,11 @@
 unit_capacity <- function(unit_capacity_adjustments = NULL) {
   
-  # List all CSV files in the directory
-  bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
-                            pattern = "\\.csv$", full.names = TRUE)
   # read each CSV and list average bed capacity for each unit monthly
-  bed_cap <- bed_cap_csv %>%
-    map_dfr(~ read_csv(.x, show_col_types = FALSE) %>% mutate(source_file = basename(.x))) %>%
+  bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
+                      show_col_types = FALSE) %>%
     rename(HOSPITAL = Location,
            SERVICE_GROUP = `Service Group`,
-           MEASURE = `Measure Names`,
-           SERVICE_MONTH = `Day of Census Start`) %>%
-    filter(MEASURE == 'Avg Total Beds') %>%
+           EXTERNAL_NAME = Unit) %>%
     mutate(
       HOSPITAL = case_when(
         HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
@@ -19,14 +14,15 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
         HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
         HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
         HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
-      SERVICE_MONTH = mdy(SERVICE_MONTH),
-      EXTERNAL_NAME = Unit) %>%
-    group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH) %>%
+      SERVICE_GROUP = case_when(
+        EXTERNAL_NAME == "MSH KCC 2 South" ~ "Rehab",
+        TRUE ~ SERVICE_GROUP),
+      SERVICE_DATE = mdy(`Day of Census Day`)) %>%
+    group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE) %>%
     summarise(DATASET = "BASELINE",
-              BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE)) %>%
-    mutate(SERVICE_GROUP = 
-             case_when(EXTERNAL_NAME == "MSH CSDU KCC 6 North" ~ "Heart",
-                       TRUE ~ SERVICE_GROUP))
+              BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
+    filter(SERVICE_DATE >= min(baseline$SERVICE_DATE),
+           SERVICE_DATE <= max(baseline$SERVICE_DATE))
   
   # create duplicate df for scenario and bind it to the basline bed cap
   bed_cap_scenario <- bed_cap %>% mutate(DATASET = "SCENARIO")
@@ -37,19 +33,19 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
     # read in file for unit capacity changes to be applied to scenario output
     scenario_capacity <- read_csv(paste0(cap_dir, "Mapping Info/unit capacity/",
                                          unit_capacity_adjustments), show_col_types = FALSE)
-
+    
     # get list of all months in bed capacity data
-    unique_months <- unique(bed_cap$SERVICE_MONTH)
+    unique_days <- unique(bed_cap$SERVICE_DATE)
     # get list of all unique units with changes
     unique_units <- unique(scenario_capacity$EXTERNAL_NAME)
     
-    # expand the scenario capacity file for each month in the simulation
-    scenario_capacity <- bind_rows(replicate(length(unique_months), 
+    # expand the scenario capacity file for each day in the simulation
+    scenario_capacity <- bind_rows(replicate(length(unique_days), 
                                              scenario_capacity, 
                                              simplify = FALSE)) %>%
-      mutate(SERVICE_MONTH = rep(unique_months, each = length(unique_units)),
+      mutate(SERVICE_DATE = rep(unique_days, each = length(unique_units)),
              DATASET = "SCENARIO") %>%
-      select(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, DATASET, BED_CAPACITY)
+      select(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE, DATASET, BED_CAPACITY)
     
     bed_cap <- bed_cap %>%
       filter(!(EXTERNAL_NAME %in% unique_units & DATASET == "SCENARIO")) %>%
@@ -57,11 +53,11 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
   }
   
   bed_cap <- bed_cap %>%
-    group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH, DATASET) %>%
+    group_by(HOSPITAL, SERVICE_GROUP, SERVICE_DATE, DATASET) %>%
     summarise(BED_CAPACITY = sum(BED_CAPACITY)) %>%
-    pivot_wider(id_cols = c(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH),
+    pivot_wider(id_cols = c(HOSPITAL, SERVICE_GROUP, SERVICE_DATE),
                 names_from = DATASET,
                 values_from = BED_CAPACITY)
-   
+  
   return(bed_cap) 
 }

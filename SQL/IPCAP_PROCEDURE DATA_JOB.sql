@@ -11,8 +11,8 @@ BEGIN
        WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30' OR
-              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30') AND
+       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30' OR
+              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30') AND
               FACILITY_MSX <> 'MSSN'
        ), proc AS (
            SELECT *
@@ -72,7 +72,7 @@ BEGIN
     job_action      => 'BEGIN refresh_ipcap_procedure_data; END;',
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=WEEKLY; BYDAY=WED; BYHOUR=3; BYMINUTE=0; BYSECOND=0',
-    enabled         => TRUE,
+    enabled         => FALSE,
     comments        => 'Refreshes IPCAP_PROCEDURE_DATA every Wednesday at 3:00 AM'
   );
 END;

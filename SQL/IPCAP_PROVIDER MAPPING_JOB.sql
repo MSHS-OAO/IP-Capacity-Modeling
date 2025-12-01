@@ -14,8 +14,8 @@ BEGIN
            PRINCIPAL_SURGEON_CD_SRC,
            PRINCIPAL_SURGEON_NAME_MSX
     from MSX_IP_OUTPUT
-    where (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' OR
-           ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2024-12-31') AND
+    where (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30' OR
+           ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30') AND
         FACILITY_MSX <> 'MSSN'
     ), proc as (
         select ENCOUNTER_NO,
@@ -44,6 +44,6 @@ BEGIN
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=WEEKLY; BYDAY=WED; BYHOUR=2; BYMINUTE=0; BYSECOND=0',
     enabled         => TRUE,
-    comments        => 'Refreshes IPCAP_BEDCHARGES every Wednesday at 2:00 AM'
+    comments        => 'Refreshes IPCAP_PROVIDERS every Wednesday at 2:00 AM'
   );
 END;

@@ -11,8 +11,8 @@ BEGIN
    WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30' OR
-              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30') AND
+       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30' OR
+              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30') AND
               FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
@@ -27,6 +27,7 @@ BEGIN
            EXTERNAL_NAME,
            CASE
                WHEN EXTERNAL_NAME = 'MSH CSDU KCC 6 North' THEN 'Heart'
+               WHEN EXTERNAL_NAME = 'MSH KCC 2 South' THEN 'Rehab'
                ELSE SERVICE_GROUP
                END AS SERVICE_GROUP,
            RPT_GRP_TWENTYTHREE
@@ -116,7 +117,7 @@ BEGIN
     job_action      => 'BEGIN refresh_ipcap_processed_data; END;',
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=WEEKLY; BYDAY=WED; BYHOUR=1; BYMINUTE=0; BYSECOND=0',
-    enabled         => TRUE,
+    enabled         => FALSE,
     comments        => 'Refreshes IPCAP_PROCESSED_DATA every Wednesday at 1:00 AM'
   );
 END;

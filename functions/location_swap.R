@@ -6,13 +6,13 @@ location_swap <- function(hospitals, services,percentage_to_hosp1,percentage_to_
   if(!is.null(hospitals)) {
     # identify row indexes where patient is at hospial 1 and is in service line 2
     hosp_1_indexes <- emergency_exclusion(
-      indexes = which(baseline$FACILITY_MSX == hospitals[[1]]&
+      indexes = which(baseline$LOC_NAME == hospitals[[1]]&
                         baseline$ATTENDING_VERITY_DIV_DESC %in% services[[2]]),
       exclusion = exclusion_hosp1)
     
     # identify row indexes where patient is at hospial 2 and is in service line 1
     hosp_2_indexes <- emergency_exclusion(
-      indexes = which(baseline$FACILITY_MSX == hospitals[[2]]&
+      indexes = which(baseline$LOC_NAME == hospitals[[2]]&
                       baseline$ATTENDING_VERITY_DIV_DESC %in% services[[1]]),
       exclusion = exclusion_hosp2)
     
@@ -23,10 +23,10 @@ location_swap <- function(hospitals, services,percentage_to_hosp1,percentage_to_
     
     # reset the FACILITY of the scenario patient encounters to their new FACILITY
     scenario <- scenario %>%
-      mutate(FACILITY_MSX = case_when(
+      mutate(LOC_NAME = case_when(
         row_number() %in% sample_rows$hosp_1_sampled_indexes ~ hospitals[[2]],  # MSH → MSM
         row_number() %in% sample_rows$hosp_2_sampled_indexes ~ hospitals[[1]],  # MSM → MSH
-        TRUE ~ FACILITY_MSX))
+        TRUE ~ LOC_NAME))
     
     # create a df for new demand that has been rerouted
     new_demand <- data.frame()

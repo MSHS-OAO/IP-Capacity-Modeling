@@ -27,12 +27,14 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
   mutate(
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
     SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-    FACILITY_MSX = case_when(
-      FACILITY_MSX == 'STL' ~ 'MSM',
-      FACILITY_MSX == 'RVT' ~ 'MSW',
-      FACILITY_MSX == 'BIB' ~ 'MSB',
-      FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX
+    LOC_NAME = case_when(
+      LOC_NAME == 'THE MOUNT SINAI HOSPITAL' ~ 'MSH',
+      LOC_NAME == 'MOUNT SINAI QUEENS'       ~ 'MSQ',
+      LOC_NAME == 'MOUNT SINAI BROOKLYN'     ~ 'MSB',
+      LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
+      LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
+      LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
+      TRUE ~ LOC_NAME
     )
   )
 
@@ -66,7 +68,7 @@ reroute_service_group_percent <- list(
 
 
 # file with unit capacity adjustments
-unit_capacity_adjustments <- "tisch_cancer_center.csv"
+unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 
 # file with volume projections
 vol_projections_file <- "2026_budget_volume.csv"
@@ -75,8 +77,8 @@ vol_projections_file <- "2026_budget_volume.csv"
 los_projections_file <- "los_adjustments_2025Q4.csv"
 
 # emergency exclusions
-exclusion_hosp1 <- FALSE
-exclusion_hosp2 <- FALSE
+exclusion_hosp1 <- TRUE
+exclusion_hosp2 <- TRUE
 
 # percentage of service line moving from hospital n
 percentage_to_hosp1_list <- c(0.4, 0.9)

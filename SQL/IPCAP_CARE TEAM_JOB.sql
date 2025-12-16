@@ -9,7 +9,15 @@ BEGIN
    -- Step 2: Insert new data
    INSERT INTO IPCAP_CARE_TEAM
    with ip as (
-       select * from IPCAP_BEDCHARGES
+       select distinct
+           ENCOUNTER_NO,
+           ADMIT_DT_SRC,
+           SERVICE_DESC_MSX,
+           LOS_NO_SRC,
+           VIZ_EX_LOS,
+           MSDRG_CD_SRC,
+           MSDRG_DESC_MSX
+       from IPCAP_BEDCHARGES
    ), care_team as (
        select *
        from MS_INSIGHT.v_temp_22_ra

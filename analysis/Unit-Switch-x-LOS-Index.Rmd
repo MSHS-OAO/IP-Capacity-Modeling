@@ -28,15 +28,7 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 ```{r load baseline, message=FALSE}
 # baseline IPCAP Bedcharge data
 baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
-  mutate(
-    SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
-    SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-    FACILITY_MSX = case_when(
-      FACILITY_MSX == 'STL' ~ 'MSM',
-      FACILITY_MSX == 'RVT' ~ 'MSW',
-      FACILITY_MSX == 'BIB' ~ 'MSB',
-      FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX)) %>%
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d")) %>%
   filter(ADMIT_DT_SRC >= as.Date("2024-06-01"),
          DSCH_DT_SRC <= as.Date("2025-09-30"),
          LOS_NO_SRC <= 100,
@@ -148,7 +140,7 @@ ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) +
     color = "#FF00004D",
   ) +
   geom_hline(
-    yintercept = 2, 
+    yintercept = 1, 
     linetype = "dashed", 
     color = "black", 
     alpha = 0.3,         

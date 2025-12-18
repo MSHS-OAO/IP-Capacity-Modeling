@@ -22,16 +22,9 @@ BEGIN
              SERVICE_DATE BETWEEN 20240601 AND 20250930
    ),
    service_group AS (
-       SELECT
-           DEPARTMENT_ID,
-           EXTERNAL_NAME,
-           CASE
-               WHEN EXTERNAL_NAME = 'MSH CSDU KCC 6 North' THEN 'Heart'
-               WHEN EXTERNAL_NAME = 'MSH KCC 2 South' THEN 'Rehab'
-               ELSE SERVICE_GROUP
-               END AS SERVICE_GROUP,
-           RPT_GRP_TWENTYTHREE
-       FROM DASHBD_USER.CLARITY_DEP_REF
+       select LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM,
+              NVL(VALID_TO, SYSDATE) AS VALID_TO
+       from IPCAP_SERVICE_GROUPS
    ),
    cpt AS (
        SELECT CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT
@@ -93,12 +86,13 @@ BEGIN
               charge.NEW_GL_COMPONENT,
               service_group.EXTERNAL_NAME,
               service_group.SERVICE_GROUP,
-              service_group.RPT_GRP_TWENTYTHREE
+              service_group.LOC_NAME
        FROM ip
        LEFT JOIN charge
          ON ip.ENCOUNTER_NO = charge.HSP_ACCOUNT_ID
        LEFT JOIN service_group
-         ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
+         ON charge.EPIC_DEPT_ID = service_group.EPIC_DEPT_ID AND
+            TO_DATE(charge.SERVICE_DATE, 'YYYYMMDD') BETWEEN service_group.VALID_FROM AND service_group.VALID_TO
        LEFT JOIN cpt
          ON charge.CPT_HCPCS_C = cpt.CPT
        LEFT JOIN principal_surgeon

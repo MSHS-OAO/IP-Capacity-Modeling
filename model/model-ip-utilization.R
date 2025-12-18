@@ -59,8 +59,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       df <- df %>%
         group_by(LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
         summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop")
-    
-      
+
     })
     names(daily_demand) <- names(datasets_processed)
     

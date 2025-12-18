@@ -130,7 +130,7 @@ if (nrow(change) > 0) {
 ```{r add new deps, include=FALSE}
 
 # only execute if new deps exist
-if (nrow(deps_added) > 0) {
+if (nrow(check) > 0) {
   
   # get new data
   deps_added <- deps_added %>%
@@ -150,16 +150,18 @@ if (nrow(deps_added) > 0) {
 
 ```{r send to DB, include=FALSE}
 
-# define target table
-target_table <- "IPCAP_SERVICE_GROUPS"
-
-dbWithTransaction(con_prod, {
-  # 1. Truncate
-  dbExecute(con_prod, glue_sql("TRUNCATE TABLE {`target_table`}", .con = con_prod))
+if (exists("final")) {
+  # define target table
+  target_table <- "IPCAP_SERVICE_GROUPS"
   
-  # 2. Insert
-  dbWriteTable(con_prod, SQL(target_table), final, append = TRUE, row.names = FALSE)
-})
+  dbWithTransaction(con_prod, {
+    # 1. Truncate
+    dbExecute(con_prod, glue_sql("TRUNCATE TABLE {`target_table`}", .con = con_prod))
+    
+    # 2. Insert
+    dbWriteTable(con_prod, SQL(target_table), final, append = TRUE, row.names = FALSE)
+  })
+}
 ```
 
 ```{r print changes, echo=FALSE}

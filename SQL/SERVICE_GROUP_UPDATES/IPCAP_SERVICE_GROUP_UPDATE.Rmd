@@ -35,19 +35,6 @@ new <- tbl(con_prod,
   collect()
 ```
 
-```{r dummy new data, include=FALSE}
-new_id <- c(11111, "TEST", "TEST", "TEST")
-new_id2 <- c(22222, "TEST", "TEST", "TEST")
-
-new <- new %>%
-  rbind(new_id, new_id2) %>%
-  mutate(SERVICE_GROUP = case_when(
-    DEPARTMENT_ID == 8505109 ~ "TEST",
-    DEPARTMENT_ID == 8505110 ~ "TEST",
-    TRUE ~ SERVICE_GROUP),
-    DEPARTMENT_ID = as.numeric(DEPARTMENT_ID))
-```
-
 ```{r compare current with new, include=FALSE}
 # compare current with new mappings
 compare <- current %>%
@@ -96,10 +83,6 @@ check <- tbl(con_prod, "IPCAP_BEDCHARGES") %>%
   distinct() %>%
   collect() %>%
   filter(EPIC_DEPT_ID %in% new_deps)
-
-#####################################
-check <- data.frame(EPIC_DEPT_ID = c(11111, 22222))
-#####################################
 
 if (nrow(check) > 0) {
   deps_added <- compare %>%

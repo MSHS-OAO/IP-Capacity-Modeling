@@ -166,12 +166,14 @@ if (exists("final")) {
 
 ```{r print changes, echo=FALSE}
 
-# print everything that changed
-deps_added %>%
-  rbind(update) %>%
-  arrange(EPIC_DEPT_ID) %>%
-  kable() %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
-                font_size = 10,
-                full_width = F)
+if (exists("final")) {
+  # print everything that changed
+  deps_added %>%
+    rbind(update) %>%
+    arrange(EPIC_DEPT_ID) %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  font_size = 10,
+                  full_width = F)
+}
 ```

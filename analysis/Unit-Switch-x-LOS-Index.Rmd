@@ -1,0 +1,285 @@
+---
+title: "Unit Switch x LOS Index"
+author: "Greg Lenane"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	fig.height = 10,
+	fig.width = 15)
+
+library(odbc)
+library(DBI)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+```
+
+# Data Setup
+### Load Baseline
+```{r load baseline, message=FALSE}
+# baseline IPCAP Bedcharge data
+baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
+  mutate(SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d")) %>%
+  filter(ADMIT_DT_SRC >= as.Date("2024-06-01"),
+         DSCH_DT_SRC <= as.Date("2025-09-30"),
+         LOS_NO_SRC <= 100,
+         !is.na(LOS_NO_SRC),
+         !is.na(VIZ_EX_LOS),
+         !(SERVICE_DESC_MSX %in% c("PSYCHIATRY", "REHABILITATION", "CHEMICAL DEPENDECY")))
+```
+### Encounters by Day
+```{r encounter by day, message=FALSE}
+# LOS for each care team (care team must have a service line) on IP units
+encounter_by_day <- baseline %>%
+  group_by(ENCOUNTER_NO, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, DSCH_DT_SRC, 
+           ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, MSDRG_DESC_MSX, 
+           EPIC_DEPT_ID, EPIC_DEPT_NAME, EXTERNAL_NAME, SERVICE_GROUP, 
+           SERVICE_DATE) %>%
+  summarise(BED_CHARGES = sum(QUANTITY)) %>%
+  mutate(BED_CHARGES = case_when(
+    BED_CHARGES > 1 ~ 1,
+    TRUE ~ BED_CHARGES)) %>%
+  filter(BED_CHARGES != 0) %>%
+  arrange(ENCOUNTER_NO, SERVICE_DATE) %>%
+  mutate(
+    LOS_INDEX = LOS_NO_SRC / VIZ_EX_LOS,
+    EXTERNAL_NAME = case_when(
+      is.na(EXTERNAL_NAME) ~ paste0("(NON IP) ", EPIC_DEPT_NAME),
+      TRUE ~ EXTERNAL_NAME),
+    SERVICE_GROUP = case_when(
+      is.na(SERVICE_GROUP) ~ "NON IP",
+      TRUE ~ SERVICE_GROUP))
+```
+
+### Unit Stays
+```{r encounter units, message=FALSE}
+# break down each encounters stay into unit stays by number of days
+encounter_unit_stays <- encounter_by_day %>%  
+  arrange(ENCOUNTER_NO, SERVICE_DATE) %>%
+  group_by(ENCOUNTER_NO) %>%
+  mutate(UNIT_CHANGE = EXTERNAL_NAME != lag(EXTERNAL_NAME),
+         DATE_GAP    = SERVICE_DATE != lag(SERVICE_DATE) + days(1),
+         NEW_STAY    = is.na(lag(SERVICE_DATE)) | UNIT_CHANGE | DATE_GAP,
+         STAY_ID     = cumsum(NEW_STAY))
+```
+
+### Unit Switch
+```{r unit stays, message=FALSE}
+# for each encounter get the total unit switches
+encounter_unit_switch <- encounter_unit_stays %>%
+  group_by(ENCOUNTER_NO, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
+           MSDRG_DESC_MSX, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
+  summarise(UNIT_COUNT = max(STAY_ID))
+
+head(encounter_unit_switch) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```
+
+# Visualizations
+### Full Population - LOS Index Distribution
+```{r population visualization}
+ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
+  geom_jitter(aes(colour = factor(UNIT_COUNT)),
+              width = .2) +
+  labs(
+    title = "Distribution of Unit Count and LOS Index",
+    x = "Unit Count",
+    y = "LOS Index (Actual/Expected)"
+  ) +
+  scale_color_discrete(name = "Unit Count") +
+  scale_x_continuous(
+    breaks = seq(0, max(encounter_unit_switch$UNIT_COUNT), by = 1)) +
+  scale_y_continuous(
+    breaks = seq(0, max(encounter_unit_switch$LOS_INDEX), by = 1))
+```
+
+### LOS Index X Unit Count (no outliers)
+```{r no outliers, message=FALSE}
+# remove outliers
+no_outliers <- encounter_unit_switch %>%
+  filter(UNIT_COUNT <= 10,
+         LOS_INDEX <= 10) %>%
+  mutate(UNIT_COUNT_F = factor(UNIT_COUNT, levels = 1:10, ordered = TRUE)) %>%
+  arrange(UNIT_COUNT_F)
+
+# calc median performance by unit count grouping
+median_data <- no_outliers %>%
+  group_by(UNIT_COUNT_F) %>%
+  reframe(
+    Median_LOS = median(LOS_INDEX, na.rm = TRUE),
+    UNIT_COUNT_NUM = as.numeric(UNIT_COUNT_F)
+  )
+
+# violin plot with linear regression line
+ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) + 
+  geom_violin(
+    aes(fill = UNIT_COUNT_F), 
+    trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE
+  ) +
+  geom_boxplot(
+    width = 0.1, outlier.shape = NA, fill = "white", color = "black"
+  ) +
+  geom_smooth(
+    data = median_data,
+    aes(x = UNIT_COUNT_NUM, y = Median_LOS), 
+    method = "lm",           
+    se = FALSE,              
+    linewidth = 1.5,
+    color = "#FF00004D",
+  ) +
+  geom_hline(
+    yintercept = 1, 
+    linetype = "dashed", 
+    color = "black", 
+    alpha = 0.3,         
+    linewidth = 1         
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 10, by = 1), 
+    limits = c(0, 10)            
+  ) +
+  labs(
+    title = "LOS Index by Unit Count",
+    subtitle = "Unit Count <= 10; LOS Index <= 10",
+    x = "Unit Count",
+    y = "LOS Index (Actual/Expected)"
+  ) 
+```
+
+# Correlation Tests
+### Full Population - LOS Index Correlation
+```{r correlation tests, warning=FALSE}
+# pearson correlation test
+corr_test_pearson <- cor.test(
+  x = encounter_unit_switch$UNIT_COUNT,
+  y = encounter_unit_switch$LOS_INDEX,
+  method = "pearson"
+)
+
+# spearman correlation test
+corr_test_spearman <- cor.test(
+  x = encounter_unit_switch$UNIT_COUNT,
+  y = encounter_unit_switch$LOS_INDEX,
+  method = "spearman"
+)
+print(corr_test_pearson)
+print(corr_test_spearman)
+```
+
+### By DRG - LOS Index Correlation
+```{r drg correlation}
+# Correlation study by DRG
+drg <- encounter_unit_switch %>%
+  group_by(MSDRG_CD_SRC) %>%
+  summarise(n_encounters = n()) %>%
+  filter(n_encounters > 100,
+         !is.na(MSDRG_CD_SRC)) %>%
+  pull(MSDRG_CD_SRC)
+
+DRG_correlation <- lapply(drg, function(d) {
+  df_subset <- encounter_unit_switch %>%
+    filter(MSDRG_CD_SRC == d)
+  
+  # Filter out NA values for the two variables we care about
+  df_complete <- df_subset %>%
+    filter(!is.na(UNIT_COUNT) & !is.na(LOS_NO_SRC))
+  
+  n_complete <- nrow(df_complete)
+  
+  # check for sufficient (3) complete observations
+  if (n_complete < 3) { 
+    return(data.frame(
+      N_Encounters = n_complete,
+      R_Value = NA,
+      P_Value = NA,
+      Error_Reason = paste("Not enough finite observations (N < 3). N =", n_complete)
+    ))
+  }
+  
+  # Check for variance within DRG group
+  if (sd(df_complete$UNIT_COUNT) == 0 || sd(df_complete$LOS_INDEX) == 0) {
+    return(data.frame(
+      N_Encounters = n_complete,
+      R_Value = NA,
+      P_Value = NA,
+      Error_Reason = "Zero variance in one or both variables"
+    ))
+  }
+  
+  # execute the correlation test using the clean data
+  result <- tryCatch(
+    {
+      corr_test <- cor.test(
+        x = df_complete$UNIT_COUNT,
+        y = df_complete$LOS_INDEX
+      )
+      
+      data.frame(
+        N_Encounters = n_complete,
+        R_Value = corr_test$estimate,
+        P_Value = corr_test$p.value,
+        Error_Reason = "Success"
+      )
+    },
+    error = function(e) {
+      data.frame(
+        N_Encounters = n_complete,
+        R_Value = NA,
+        P_Value = NA,
+        Error_Reason = paste("Error:", as.character(e))
+      )
+    }
+  )
+  return(result)
+})
+
+# Combine the results into a single data frame
+correlation_summary <- data.frame(
+  MSDRG_CD_SRC = drg,
+  do.call(rbind, DRG_correlation)
+)
+
+final_summary_table <- correlation_summary %>%
+  left_join(
+    encounter_unit_switch %>% ungroup() %>% distinct(MSDRG_CD_SRC, MSDRG_DESC_MSX),
+    by = "MSDRG_CD_SRC") %>%
+  # Filter out the groups where the correlation could not be calculated
+  filter(Error_Reason == "Success") %>%
+  mutate(
+    # Format p-value for readability
+    P_Value = format.pval(P_Value, digits = 3, eps = 0.001),
+    # Determine significance
+    Is_Significant = P_Value < 0.05,
+    # Classify the strength and direction
+    Effect = case_when(
+      Is_Significant & R_Value > 0.3 ~ "Strong/Moderate Positive Effect",
+      Is_Significant & R_Value < -0.3 ~ "Strong/Moderate Negative Effect",
+      Is_Significant ~ "Weak Significant Effect",
+      TRUE ~ "Not Significant"
+    )
+  ) %>%
+  # Select and arrange final columns
+  select(
+    MSDRG_CD_SRC, MSDRG_DESC_MSX, N_Encounters, R_Value, 
+    P_Value, Is_Significant, Effect
+  ) %>%
+  arrange(desc(R_Value))
+
+head(final_summary_table, 20) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```

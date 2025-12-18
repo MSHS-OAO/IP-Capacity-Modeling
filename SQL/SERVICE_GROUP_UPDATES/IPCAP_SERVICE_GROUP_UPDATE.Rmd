@@ -1,0 +1,192 @@
+---
+title: "update-service-groupings"
+author: "Greg Lenane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(odbc)
+library(DBI)
+library(dbplyr)
+library(kableExtra)
+library(glue)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+```
+
+```{r load current and new, include=FALSE}
+# current service group mappings
+current <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
+  filter(is.na(VALID_TO)) %>%
+  collect()
+
+# new service group mappings
+new <- tbl(con_prod, 
+           in_schema("DASHBD_USER", "CLARITY_DEP_REF")) %>%
+  select(DEPARTMENT_ID, EXTERNAL_NAME, SERVICE_GROUP, LOC_NAME) %>%
+  mutate(DEPARTMENT_ID = as.numeric(DEPARTMENT_ID),
+         LOC_NAME = trim(LOC_NAME),
+         EXTERNAL_NAME = trim(EXTERNAL_NAME),
+         SERVICE_GROUP = trim(SERVICE_GROUP)) %>%
+  collect()
+```
+
+```{r dummy new data, include=FALSE}
+new_id <- c(11111, "TEST", "TEST", "TEST")
+new_id2 <- c(22222, "TEST", "TEST", "TEST")
+
+new <- new %>%
+  rbind(new_id, new_id2) %>%
+  mutate(SERVICE_GROUP = case_when(
+    DEPARTMENT_ID == 8505109 ~ "TEST",
+    DEPARTMENT_ID == 8505110 ~ "TEST",
+    TRUE ~ SERVICE_GROUP),
+    DEPARTMENT_ID = as.numeric(DEPARTMENT_ID))
+```
+
+```{r compare current with new, include=FALSE}
+# compare current with new mappings
+compare <- current %>%
+  full_join(new, 
+            by = c("EPIC_DEPT_ID" = "DEPARTMENT_ID"),
+            suffix = c("_current", "_new")) %>%
+  mutate(LOCATION_CHANGE = if_else(LOC_NAME_current != LOC_NAME_new, TRUE, FALSE),
+         NAME_CHANGE = if_else(EXTERNAL_NAME_current != EXTERNAL_NAME_new, TRUE, FALSE),
+         GROUP_CHANGE = if_else(SERVICE_GROUP_current != SERVICE_GROUP_new, TRUE, FALSE))
+
+```
+
+### Changes To Current Departments
+```{r display changes, echo=FALSE}
+# filter and display all EPIC_IDs where location, name or service group changes
+change <- compare %>%
+  filter(LOCATION_CHANGE | NAME_CHANGE | GROUP_CHANGE) %>%
+  select(EPIC_DEPT_ID,
+         contains("LOC_NAME"),
+         contains("EXTERNAL_NAME"),
+         contains("SERVICE_GROUP"),
+         contains("CHANGE"))
+
+if (nrow(change) > 0) {
+  change %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+} else {
+  print("There were no changes to Epic Mappings")
+}
+
+```
+
+### New Departments
+```{r new departments, echo=FALSE}
+# get epic deps that are not in current mappings
+new_deps <- compare %>%
+  filter(is.na(LOCATION_CHANGE)) %>%
+  pull(EPIC_DEPT_ID)
+
+# check if new mappings have bedcharges
+check <- tbl(con_prod, "IPCAP_BEDCHARGES") %>%
+  select(EPIC_DEPT_ID) %>%
+  distinct() %>%
+  collect() %>%
+  filter(EPIC_DEPT_ID %in% new_deps)
+
+#####################################
+check <- data.frame(EPIC_DEPT_ID = c(11111, 22222))
+#####################################
+
+if (nrow(check) > 0) {
+  deps_added <- compare %>%
+    filter(EPIC_DEPT_ID %in% check$EPIC_DEPT_ID) %>%
+    select(EPIC_DEPT_ID, LOC_NAME_new, EXTERNAL_NAME_new, SERVICE_GROUP_new)
+  deps_added %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  font_size = 10,
+                  full_width = F)
+} else {
+  print("There were no new Epic departments with bed charges")
+}
+```
+
+### Update Mapping
+```{r update changes, include=FALSE}
+
+# only execute if change has data
+if (nrow(change) > 0) {
+  
+  # get changed data
+  change <- change %>%
+    mutate(LOC_NAME = LOC_NAME_new,
+           EXTERNAL_NAME = EXTERNAL_NAME_new,
+           SERVICE_GROUP = SERVICE_GROUP_new,
+           VALID_FROM = Sys.Date(),
+           VALID_TO = NA) %>%
+    select(LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM, VALID_TO)
+  
+  # update current mappings and combine with changes
+  update <- current %>%
+    filter(EPIC_DEPT_ID %in% change$EPIC_DEPT_ID) %>%
+    mutate(VALID_TO = Sys.Date() - 1) %>%
+    rbind(change)
+  
+  # replace updates and changes in current mappings
+  final <- current %>%
+    filter(!(EPIC_DEPT_ID %in% update$EPIC_DEPT_ID)) %>%
+    rbind(update)
+  
+}
+```
+
+```{r add new deps, include=FALSE}
+
+# only execute if new deps exist
+if (nrow(deps_added) > 0) {
+  
+  # get new data
+  deps_added <- deps_added %>%
+    mutate(LOC_NAME = LOC_NAME_new,
+           EXTERNAL_NAME = EXTERNAL_NAME_new,
+           SERVICE_GROUP = SERVICE_GROUP_new,
+           VALID_FROM = Sys.Date(),
+           VALID_TO = NA,
+           VALID_TO = as.Date(VALID_TO)) %>%
+    select(LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM, VALID_TO)
+  
+  # bind new deps to mapping table
+  final <- final %>%
+    rbind(deps_added)
+}
+```
+
+```{r send to DB, include=FALSE}
+
+# define target table
+target_table <- "IPCAP_SERVICE_GROUPS"
+
+dbWithTransaction(con_prod, {
+  # 1. Truncate
+  dbExecute(con_prod, glue_sql("TRUNCATE TABLE {`target_table`}", .con = con_prod))
+  
+  # 2. Insert
+  dbWriteTable(con_prod, SQL(target_table), final, append = TRUE, row.names = FALSE)
+})
+```
+
+```{r print changes, echo=FALSE}
+
+# print everything that changed
+deps_added %>%
+  rbind(update) %>%
+  arrange(EPIC_DEPT_ID) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```

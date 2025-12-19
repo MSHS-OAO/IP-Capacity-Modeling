@@ -19,6 +19,9 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
     group_by(HOSPITAL,EXTERNAL_NAME, SERVICE_DATE) %>%
     summarise(DATASET = "BASELINE",
               BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
+    mutate(BED_CAPACITY = case_when(
+      EXTERNAL_NAME == "MSH KP2 L&D" ~ 20,
+      TRUE ~ BED_CAPACITY)) %>%
     filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
            SERVICE_DATE >= min(baseline$SERVICE_DATE),
            SERVICE_DATE <= max(baseline$SERVICE_DATE)) %>%

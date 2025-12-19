@@ -1,32 +1,44 @@
 unit_capacity <- function(unit_capacity_adjustments = NULL) {
   
-  # List all CSV files in the directory
-  bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
-                            pattern = "\\.csv$", full.names = TRUE)
+  # load mapping file for all Epic IDs
+  epic_mapping <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
+    collect() %>%
+    mutate(VALID_TO = case_when(
+      is.na(VALID_TO) ~ Sys.Date(),
+      TRUE ~ VALID_TO),
+      VALID_FROM = as.Date(VALID_FROM),
+      VALID_TO = as.Date(VALID_TO))
+  
   # read each CSV and list average bed capacity for each unit monthly
-  bed_cap <- bed_cap_csv %>%
-    map_dfr(~ read_csv(.x, show_col_types = FALSE) %>% mutate(source_file = basename(.x))) %>%
+  bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
+                      show_col_types = FALSE) %>%
     rename(HOSPITAL = Location,
            SERVICE_GROUP = `Service Group`,
-           MEASURE = `Measure Names`,
-           SERVICE_MONTH = `Day of Census Start`) %>%
-    filter(MEASURE == 'Avg Total Beds') %>%
-    mutate(
-      HOSPITAL = case_when(
-        HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
-        HOSPITAL == "MOUNT SINAI BROOKLYN" ~ "MSB",
-        HOSPITAL == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
-        HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
-        HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
-        HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
-      SERVICE_MONTH = mdy(SERVICE_MONTH),
-      EXTERNAL_NAME = Unit) %>%
-    group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH) %>%
+           EXTERNAL_NAME = Unit) %>%
+    mutate(SERVICE_DATE = mdy(`Day of Census Day`)) %>%
+    group_by(HOSPITAL,EXTERNAL_NAME, SERVICE_DATE) %>%
     summarise(DATASET = "BASELINE",
-              BED_CAPACITY = sum(`Measure Values`, na.rm = TRUE)) %>%
-    mutate(SERVICE_GROUP = 
-             case_when(EXTERNAL_NAME == "MSH CSDU KCC 6 North" ~ "Heart",
-                       TRUE ~ SERVICE_GROUP))
+              BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
+    mutate(BED_CAPACITY = case_when(
+      EXTERNAL_NAME == "MSH KP2 L&D" ~ 20,
+      TRUE ~ BED_CAPACITY)) %>%
+    filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
+           SERVICE_DATE >= min(baseline$SERVICE_DATE),
+           SERVICE_DATE <= max(baseline$SERVICE_DATE)) %>%
+    left_join(epic_mapping, 
+              by = join_by(EXTERNAL_NAME == EXTERNAL_NAME,
+                           SERVICE_DATE >= VALID_FROM,
+                           SERVICE_DATE <= VALID_TO)) %>%
+    mutate(
+      LOC_NAME = case_when(
+        LOC_NAME == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
+        LOC_NAME == "MOUNT SINAI BROOKLYN" ~ "MSB",
+        LOC_NAME == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
+        LOC_NAME == "MOUNT SINAI QUEENS" ~ "MSQ",
+        LOC_NAME == "MOUNT SINAI WEST" ~ "MSW",
+        LOC_NAME == "THE MOUNT SINAI HOSPITAL" ~ "MSH")) %>%
+    ungroup() %>%
+    select(SERVICE_DATE, LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, EPIC_DEPT_ID, BED_CAPACITY, DATASET)
   
   # create duplicate df for scenario and bind it to the basline bed cap
   bed_cap_scenario <- bed_cap %>% mutate(DATASET = "SCENARIO")
@@ -37,31 +49,29 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
     # read in file for unit capacity changes to be applied to scenario output
     scenario_capacity <- read_csv(paste0(cap_dir, "Mapping Info/unit capacity/",
                                          unit_capacity_adjustments), show_col_types = FALSE)
-
-    # get list of all months in bed capacity data
-    unique_months <- unique(bed_cap$SERVICE_MONTH)
-    # get list of all unique units with changes
-    unique_units <- unique(scenario_capacity$EXTERNAL_NAME)
     
-    # expand the scenario capacity file for each month in the simulation
-    scenario_capacity <- bind_rows(replicate(length(unique_months), 
-                                             scenario_capacity, 
-                                             simplify = FALSE)) %>%
-      mutate(SERVICE_MONTH = rep(unique_months, each = length(unique_units)),
-             DATASET = "SCENARIO") %>%
-      select(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, DATASET, BED_CAPACITY)
+    # get list of all months in bed capacity data
+    unique_days <- unique(bed_cap$SERVICE_DATE)
+    # get list of all epic IDs in projections
+    unique_id <- unique(scenario_capacity$EPIC_DEPT_ID)
+    
+    # create scenario bed capacity for full scenario dataset
+    scenario_capacity <- expand_grid(
+      SERVICE_DATE = unique_days,
+      scenario_capacity) %>%
+      mutate(DATASET = "SCENARIO")
     
     bed_cap <- bed_cap %>%
-      filter(!(EXTERNAL_NAME %in% unique_units & DATASET == "SCENARIO")) %>%
+      filter(!(EPIC_DEPT_ID %in% unique_id & DATASET == "SCENARIO")) %>%
       rbind(scenario_capacity)
   }
   
   bed_cap <- bed_cap %>%
-    group_by(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH, DATASET) %>%
-    summarise(BED_CAPACITY = sum(BED_CAPACITY)) %>%
-    pivot_wider(id_cols = c(HOSPITAL, SERVICE_GROUP, SERVICE_MONTH),
+    group_by(LOC_NAME, SERVICE_GROUP, SERVICE_DATE, DATASET) %>%
+    summarise(BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE)) %>%
+    pivot_wider(id_cols = c(LOC_NAME, SERVICE_GROUP, SERVICE_DATE),
                 names_from = DATASET,
                 values_from = BED_CAPACITY)
-   
+  
   return(bed_cap) 
 }

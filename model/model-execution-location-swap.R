@@ -27,12 +27,14 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
   mutate(
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
     SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-    FACILITY_MSX = case_when(
-      FACILITY_MSX == 'STL' ~ 'MSM',
-      FACILITY_MSX == 'RVT' ~ 'MSW',
-      FACILITY_MSX == 'BIB' ~ 'MSB',
-      FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX
+    LOC_NAME = case_when(
+      LOC_NAME == 'THE MOUNT SINAI HOSPITAL' ~ 'MSH',
+      LOC_NAME == 'MOUNT SINAI QUEENS'       ~ 'MSQ',
+      LOC_NAME == 'MOUNT SINAI BROOKLYN'     ~ 'MSB',
+      LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
+      LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
+      LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
+      TRUE ~ LOC_NAME
     )
   )
 
@@ -45,6 +47,7 @@ source("functions/los_adjustment.R")
 source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
+source("functions/volume_projections.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -66,7 +69,7 @@ reroute_service_group_percent <- list(
 
 
 # file with unit capacity adjustments
-unit_capacity_adjustments <- "tisch_cancer_center.csv"
+unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 
 # file with volume projections
 vol_projections_file <- "2026_budget_volume.csv"
@@ -75,8 +78,8 @@ vol_projections_file <- "2026_budget_volume.csv"
 los_projections_file <- "los_adjustments_2025Q4.csv"
 
 # emergency exclusions
-exclusion_hosp1 <- FALSE
-exclusion_hosp2 <- FALSE
+exclusion_hosp1 <- TRUE
+exclusion_hosp2 <- TRUE
 
 # percentage of service line moving from hospital n
 percentage_to_hosp1_list <- c(0.4, 0.9)
@@ -98,7 +101,7 @@ utilizations <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 for (i in 1:length(percentage_to_hosp1_list)) {
-  print(paste0("Running scenario ", i, "/", p))
+  print(paste0("Running scenario ", i, "/", length(percentage_to_hosp1_list)))
   
   # specify num of simulations
   n_simulations = 2
@@ -113,7 +116,7 @@ for (i in 1:length(percentage_to_hosp1_list)) {
   }
   
   results <- ip_utilization_model (
-    generator = location_swap,
+    generator = "location_swap",
     n_simulations = n_simulations
   )
   
@@ -146,7 +149,7 @@ html_output_path <- paste0(cap_dir, "Model Outputs/Visualizations/",
 wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
-save_parameters()
+save_parameters(generator = "location_swap")
 
 # create a sheet for each percentage pair
 for (i in 1:length(utilizations)) {

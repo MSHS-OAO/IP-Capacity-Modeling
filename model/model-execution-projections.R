@@ -27,12 +27,14 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
   mutate(
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
     SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-    FACILITY_MSX = case_when(
-      FACILITY_MSX == 'STL' ~ 'MSM',
-      FACILITY_MSX == 'RVT' ~ 'MSW',
-      FACILITY_MSX == 'BIB' ~ 'MSB',
-      FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX
+    LOC_NAME = case_when(
+      LOC_NAME == 'THE MOUNT SINAI HOSPITAL' ~ 'MSH',
+      LOC_NAME == 'MOUNT SINAI QUEENS'       ~ 'MSQ',
+      LOC_NAME == 'MOUNT SINAI BROOKLYN'     ~ 'MSB',
+      LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
+      LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
+      LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
+      TRUE ~ LOC_NAME
     )
   )
 
@@ -43,6 +45,7 @@ source("functions/los_adjustment.R")
 source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
+source("functions/volume_projections.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -50,7 +53,7 @@ source("model/model-ip-utilization.R")
 # ---------------------------------------------------------- Scenario Parameters ----------------------------------------------------------
 
 # file with unit capacity adjustments
-unit_capacity_adjustments <- "tisch_cancer_center.csv"
+unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 
 # file with volume projections
 vol_projections_file <- "2026_budget_volume.csv"
@@ -69,9 +72,7 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 utilizations <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
-results <- ip_utilization_model (
-  generator = projections
-)
+results <- ip_utilization_model()
 
 # Unpack values from IP result list
 ip_utilization_output = results$ip_utilization_output
@@ -91,6 +92,9 @@ wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
 save_parameters()
+
+add_to_wb(df = utilizations[["MSHS IP Utilization"]],
+          sheetname = "MSHS IP Utilization")
 
 saveWorkbook(wb,
              file = paste0(cap_dir, "Model Outputs/Workbooks/",

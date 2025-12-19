@@ -11,26 +11,20 @@ BEGIN
    WITH ip AS (
        SELECT *
        FROM MSX_IP_OUTPUT
-       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30' OR
-              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-06-30') AND
+       WHERE (DSCH_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30' OR
+              ADMIT_DT_SRC BETWEEN DATE '2024-06-01' AND DATE '2025-09-30') AND
               FACILITY_MSX <> 'MSSN'
    ),
    charge AS (
        SELECT *
        FROM OE_CHARGE_DETAIL
        WHERE HSP_ACCOUNT_ID IN (SELECT DISTINCT ENCOUNTER_NO FROM ip) AND
-             SERVICE_DATE BETWEEN 20240601 AND 20250630
+             SERVICE_DATE BETWEEN 20240601 AND 20250930
    ),
    service_group AS (
-       SELECT
-           DEPARTMENT_ID,
-           EXTERNAL_NAME,
-           CASE
-               WHEN EXTERNAL_NAME = 'MSH CSDU KCC 6 North' THEN 'Heart'
-               ELSE SERVICE_GROUP
-               END AS SERVICE_GROUP,
-           RPT_GRP_TWENTYTHREE
-       FROM DASHBD_USER.CLARITY_DEP_REF
+       select LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM,
+              NVL(VALID_TO, SYSDATE) AS VALID_TO
+       from IPCAP_SERVICE_GROUPS
    ),
    cpt AS (
        SELECT CPT, CPT_COUNT, LAB_COUNT, DESCRIPTION_SHORT
@@ -92,12 +86,13 @@ BEGIN
               charge.NEW_GL_COMPONENT,
               service_group.EXTERNAL_NAME,
               service_group.SERVICE_GROUP,
-              service_group.RPT_GRP_TWENTYTHREE
+              service_group.LOC_NAME
        FROM ip
        LEFT JOIN charge
          ON ip.ENCOUNTER_NO = charge.HSP_ACCOUNT_ID
        LEFT JOIN service_group
-         ON charge.EPIC_DEPT_ID = service_group.DEPARTMENT_ID
+         ON charge.EPIC_DEPT_ID = service_group.EPIC_DEPT_ID AND
+            TO_DATE(charge.SERVICE_DATE, 'YYYYMMDD') BETWEEN service_group.VALID_FROM AND service_group.VALID_TO
        LEFT JOIN cpt
          ON charge.CPT_HCPCS_C = cpt.CPT
        LEFT JOIN principal_surgeon
@@ -116,7 +111,7 @@ BEGIN
     job_action      => 'BEGIN refresh_ipcap_processed_data; END;',
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=WEEKLY; BYDAY=WED; BYHOUR=1; BYMINUTE=0; BYSECOND=0',
-    enabled         => TRUE,
+    enabled         => FALSE,
     comments        => 'Refreshes IPCAP_PROCESSED_DATA every Wednesday at 1:00 AM'
   );
 END;

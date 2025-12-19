@@ -1,0 +1,281 @@
+---
+title: "Care Team x LOS Index"
+author: "Greg Lenane"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	fig.width = 9, 
+	fig.height = 5)
+
+library(odbc)
+library(DBI)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+```
+
+# Data Setup
+### Load Baseline
+```{r load baseline, message=FALSE}
+# baseline IPCAP Bedcharge data
+baseline <- tbl(con_prod, "IPCAP_CARE_TEAM") %>% collect() %>%
+  filter(ADMIT_DT_SRC >= as.Date("2024-06-01"),
+         DSCH_DT_SRC <= as.Date("2025-09-30"),
+         LOS_NO_SRC <= 100,
+         !is.na(LOS_NO_SRC),
+         !is.na(VIZ_EX_LOS),
+         !is.na(NPI),
+         !(SERVICE_DESC_MSX %in% c("PSYCHIATRY", "REHABILITATION", "CHEMICAL DEPENDECY")))
+```
+
+### Care Teams
+```{r care teams, message=FALSE}
+# break down each encounters stay into unit stays by number of days
+encounter_care_team <- baseline %>%  
+  arrange(ENCOUNTER_NO, ATTEND_FROM_DTTM) %>%
+  group_by(ENCOUNTER_NO) %>%
+  mutate(CARE_CHANGE = NPI != lag(NPI),
+         NEW_CARE_TEAM    = is.na(lag(NPI)) | CARE_CHANGE,
+         CARE_TEAM_ID     = cumsum(NEW_CARE_TEAM),
+         LOS_INDEX = LOS_NO_SRC / VIZ_EX_LOS)
+```
+
+### Care Team Switch
+```{r care team counts, message=FALSE}
+# for each encounter get the total unit switches
+encounter_care_switch <- encounter_care_team %>%
+  group_by(ENCOUNTER_NO, MSDRG_CD_SRC, 
+           MSDRG_DESC_MSX, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
+  summarise(CARE_TEAM_COUNT = max(CARE_TEAM_ID))
+
+head(encounter_care_switch) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```
+
+# Visualizations
+### Full Population - LOS Index Distribution
+```{r population visualization}
+plot_data <- encounter_care_switch %>%
+  filter(CARE_TEAM_COUNT <= 20)
+
+ggplot(plot_data, aes(x = CARE_TEAM_COUNT, y = LOS_INDEX)) +
+  geom_jitter(aes(colour = factor(CARE_TEAM_COUNT)),
+              width = .2) +
+  labs(
+    title = "Distribution of Care Team Count and LOS Index",
+    x = "Care Team Count",
+    y = "LOS Index (Actual/Expected)"
+  ) +
+  scale_color_discrete(name = "Care Team Count") +
+  scale_x_continuous(
+    breaks = seq(0, max(plot_data$CARE_TEAM_COUNT), by = 1)) +
+  scale_y_continuous(
+    breaks = seq(0, max(plot_data$LOS_INDEX), by = 1)) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 8),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.spacing = unit(1.5, "lines"))
+```
+```
+
+### LOS Index X Unit Count (no outliers)
+```{r no outliers, message=FALSE}
+# remove outliers
+no_outliers <- encounter_care_switch %>%
+  filter(CARE_TEAM_COUNT <= 20,
+         LOS_INDEX <= 10) %>%
+  mutate(CARE_TEAM_COUNT_F = factor(CARE_TEAM_COUNT, levels = 1:20, ordered = TRUE)) %>%
+  arrange(CARE_TEAM_COUNT_F)
+
+# calc median performance by unit count grouping
+median_data <- no_outliers %>%
+  group_by(CARE_TEAM_COUNT_F) %>%
+  reframe(
+    Median_LOS = median(LOS_INDEX, na.rm = TRUE),
+    CARE_TEAM_COUNT_NUM = as.numeric(CARE_TEAM_COUNT_F)
+  )
+
+# violin plot with linear regression line
+ggplot(no_outliers, aes(x = CARE_TEAM_COUNT_F, y = LOS_INDEX)) + 
+  geom_violin(
+    aes(fill = CARE_TEAM_COUNT_F), 
+    trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE
+  ) +
+  geom_boxplot(
+    width = 0.1, outlier.shape = NA, fill = "white", color = "black"
+  ) +
+  geom_smooth(
+    data = median_data,
+    aes(x = CARE_TEAM_COUNT_NUM, y = Median_LOS), 
+    method = "lm",           
+    se = FALSE,              
+    linewidth = 1.5,
+    color = "#FF00004D",
+  ) +
+  geom_hline(
+    yintercept = 1, 
+    linetype = "dashed", 
+    color = "black", 
+    alpha = 0.3,         
+    linewidth = 1         
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 10, by = 1), 
+    limits = c(0, 10)            
+  ) +
+  labs(
+    title = "LOS Index by Care Team Count",
+    subtitle = "Care Team Count <= 20; LOS Index <= 10",
+    x = "Care Team Count",
+    y = "LOS Index (Actual/Expected)"
+  ) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 8),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.spacing = unit(1.5, "lines"))
+```
+
+# Correlation Tests
+### Full Population - LOS Index Correlation
+```{r correlation tests, warning=FALSE}
+# pearson correlation test
+corr_test_pearson <- cor.test(
+  x = encounter_care_switch$CARE_TEAM_COUNT,
+  y = encounter_care_switch$LOS_INDEX,
+  method = "pearson"
+)
+
+# spearman correlation test
+corr_test_spearman <- cor.test(
+  x = encounter_care_switch$CARE_TEAM_COUNT,
+  y = encounter_care_switch$LOS_INDEX,
+  method = "spearman"
+)
+print(corr_test_pearson)
+print(corr_test_spearman)
+```
+
+### By DRG - LOS Index Correlation
+```{r drg correlation}
+# Correlation study by DRG
+drg <- encounter_care_switch %>%
+  group_by(MSDRG_CD_SRC) %>%
+  summarise(n_encounters = n()) %>%
+  filter(n_encounters > 100,
+         !is.na(MSDRG_CD_SRC)) %>%
+  pull(MSDRG_CD_SRC)
+
+DRG_correlation <- lapply(drg, function(d) {
+  df_subset <- encounter_care_switch %>%
+    filter(MSDRG_CD_SRC == d)
+  
+  # Filter out NA values for the two variables we care about
+  df_complete <- df_subset %>%
+    filter(!is.na(CARE_TEAM_COUNT) & !is.na(LOS_NO_SRC))
+  
+  n_complete <- nrow(df_complete)
+  
+  # check for sufficient (3) complete observations
+  if (n_complete < 3) { 
+    return(data.frame(
+      N_Encounters = n_complete,
+      R_Value = NA,
+      P_Value = NA,
+      Error_Reason = paste("Not enough finite observations (N < 3). N =", n_complete)
+    ))
+  }
+  
+  # Check for variance within DRG group
+  if (sd(df_complete$CARE_TEAM_COUNT) == 0 || sd(df_complete$LOS_INDEX) == 0) {
+    return(data.frame(
+      N_Encounters = n_complete,
+      R_Value = NA,
+      P_Value = NA,
+      Error_Reason = "Zero variance in one or both variables"
+    ))
+  }
+  
+  # execute the correlation test using the clean data
+  result <- tryCatch(
+    {
+      corr_test <- cor.test(
+        x = df_complete$CARE_TEAM_COUNT,
+        y = df_complete$LOS_INDEX
+      )
+      
+      data.frame(
+        N_Encounters = n_complete,
+        R_Value = corr_test$estimate,
+        P_Value = corr_test$p.value,
+        Error_Reason = "Success"
+      )
+    },
+    error = function(e) {
+      data.frame(
+        N_Encounters = n_complete,
+        R_Value = NA,
+        P_Value = NA,
+        Error_Reason = paste("Error:", as.character(e))
+      )
+    }
+  )
+  return(result)
+})
+
+# Combine the results into a single data frame
+correlation_summary <- data.frame(
+  MSDRG_CD_SRC = drg,
+  do.call(rbind, DRG_correlation)
+)
+
+final_summary_table <- correlation_summary %>%
+  left_join(
+    encounter_care_switch %>% ungroup() %>% distinct(MSDRG_CD_SRC, MSDRG_DESC_MSX),
+    by = "MSDRG_CD_SRC") %>%
+  # Filter out the groups where the correlation could not be calculated
+  filter(Error_Reason == "Success") %>%
+  mutate(
+    # Format p-value for readability
+    P_Value = format.pval(P_Value, digits = 3, eps = 0.001),
+    # Determine significance
+    Is_Significant = P_Value < 0.05,
+    # Classify the strength and direction
+    Effect = case_when(
+      Is_Significant & R_Value > 0.3 ~ "Strong/Moderate Positive Effect",
+      Is_Significant & R_Value < -0.3 ~ "Strong/Moderate Negative Effect",
+      Is_Significant ~ "Weak Significant Effect",
+      TRUE ~ "Not Significant"
+    )
+  ) %>%
+  # Select and arrange final columns
+  select(
+    MSDRG_CD_SRC, MSDRG_DESC_MSX, N_Encounters, R_Value, 
+    P_Value, Is_Significant, Effect
+  ) %>%
+  arrange(desc(R_Value))
+
+head(final_summary_table, 20) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```

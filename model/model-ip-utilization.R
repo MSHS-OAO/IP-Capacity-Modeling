@@ -39,6 +39,15 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
           BED_CHARGES > 1 ~ 1,
           TRUE ~ BED_CHARGES)) 
       
+      #execute volume projections
+      if (dataset == "scenario" & !is.null(vol_projections_file)) {
+        
+      df <- volume_projections(df, vol_projections_file)
+
+      } else {
+           df <- df
+         }
+      
       # project changes in LOS
       if(dataset == "scenario" & !is.null(los_projections_file)) {
         df <- los_reduction_sim(df)
@@ -50,21 +59,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       df <- df %>%
         group_by(LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
         summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop")
-      
-      # project volumes for scenario dataset
-      if (dataset == "scenario" & !is.null(vol_projections_file)) {
-        df <- df %>%
-          mutate(UNIQUE_ID = paste0(LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE)) %>%
-          left_join(read_csv(paste0(cap_dir, "Mapping Info/volume projections/", vol_projections_file),
-                             show_col_types = FALSE),
-                    by = c("UNIQUE_ID" = "UNIQUE_ID")) %>%
-          mutate(DAILY_DEMAND = case_when(
-            is.na(PERCENT) ~ DAILY_DEMAND,
-            TRUE ~ DAILY_DEMAND + DAILY_DEMAND*PERCENT))
-      } else {
-        df <- df
-      }
-      
+
     })
     names(daily_demand) <- names(datasets_processed)
     

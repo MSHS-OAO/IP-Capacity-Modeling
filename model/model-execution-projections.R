@@ -45,6 +45,7 @@ source("functions/los_adjustment.R")
 source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
+source("functions/volume_projections.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")

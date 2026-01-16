@@ -14,10 +14,14 @@ knitr::opts_chunk$set(
 library(odbc)
 library(DBI)
 library(dplyr)
+library(tidyr)
 library(lubridate)
 library(ggplot2)
 library(knitr)
 library(kableExtra)
+library(patchwork)
+library(scales)
+library(gridExtra)
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
@@ -38,6 +42,9 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 ```
 ### Encounters by Day
 ```{r encounter by day, message=FALSE}
+
+emergency_ids <- c("8504009", "8502025", "5119226", "8505028", "8503006", "8501001")
+
 # LOS for each care team (care team must have a service line) on IP units
 encounter_by_day <- baseline %>%
   group_by(ENCOUNTER_NO, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, DSCH_DT_SRC, 
@@ -57,14 +64,16 @@ encounter_by_day <- baseline %>%
       TRUE ~ EXTERNAL_NAME),
     SERVICE_GROUP = case_when(
       is.na(SERVICE_GROUP) ~ "NON IP",
-      TRUE ~ SERVICE_GROUP))
+      TRUE ~ SERVICE_GROUP)) %>%
+  group_by(ENCOUNTER_NO) %>%
+  mutate(IS_BOARDER = any(EPIC_DEPT_ID %in% emergency_ids))
 ```
 
 ### Unit Stays
 ```{r encounter units, message=FALSE}
 # break down each encounters stay into unit stays by number of days
 encounter_unit_stays <- encounter_by_day %>%  
-  arrange(ENCOUNTER_NO, SERVICE_DATE) %>%
+  arrange(ENCOUNTER_NO, SERVICE_DATE, IS_BOARDER) %>%
   group_by(ENCOUNTER_NO) %>%
   mutate(UNIT_CHANGE = EXTERNAL_NAME != lag(EXTERNAL_NAME),
          DATE_GAP    = SERVICE_DATE != lag(SERVICE_DATE) + days(1),
@@ -77,7 +86,7 @@ encounter_unit_stays <- encounter_by_day %>%
 # for each encounter get the total unit switches
 encounter_unit_switch <- encounter_unit_stays %>%
   group_by(ENCOUNTER_NO, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
-           MSDRG_DESC_MSX, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
+           MSDRG_DESC_MSX, IS_BOARDER, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
   summarise(UNIT_COUNT = max(STAY_ID))
 
 head(encounter_unit_switch) %>%
@@ -96,7 +105,7 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
   labs(
     title = "Distribution of Unit Count and LOS Index",
     x = "Unit Count",
-    y = "LOS Index (Actual/Expected)"
+    y = "LOS Index"
   ) +
   scale_color_discrete(name = "Unit Count") +
   scale_x_continuous(
@@ -106,10 +115,9 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
   theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         axis.title = element_text(size = 12),
         axis.text = element_text(size = 10),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 8),
         strip.text = element_text(size = 12, face = "bold"),
-        panel.spacing = unit(1.5, "lines"))
+        panel.spacing = unit(1.5, "lines"),
+        legend.position = "none")
 ```
 
 ### LOS Index X Unit Count (no outliers)
@@ -129,48 +137,80 @@ median_data <- no_outliers %>%
     UNIT_COUNT_NUM = as.numeric(UNIT_COUNT_F)
   )
 
-# violin plot with linear regression line
-ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) + 
-  geom_violin(
-    aes(fill = UNIT_COUNT_F), 
-    trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE
-  ) +
-  geom_boxplot(
-    width = 0.1, outlier.shape = NA, fill = "white", color = "black"
-  ) +
-  geom_smooth(
-    data = median_data,
-    aes(x = UNIT_COUNT_NUM, y = Median_LOS), 
-    method = "lm",           
-    se = FALSE,              
-    linewidth = 1.5,
-    color = "#FF00004D",
-  ) +
-  geom_hline(
-    yintercept = 1, 
-    linetype = "dashed", 
-    color = "black", 
-    alpha = 0.3,         
-    linewidth = 1         
-  ) +
-  scale_y_continuous(
-    breaks = seq(0, 10, by = 1), 
-    limits = c(0, 10)            
-  ) +
+# group percents 
+n_counts <- no_outliers %>%
+  group_by(UNIT_COUNT_F) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(label = percent(n / sum(n), accuracy = 0.1))
+
+# Main Plot:
+plot_main <- ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) + 
+  geom_violin(aes(fill = UNIT_COUNT_F), trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white", color = "black") +
+  geom_smooth(data = median_data, aes(x = UNIT_COUNT_NUM, y = Median_LOS), method = "lm", se = FALSE, linewidth = 1.5, color = "#FF00004D") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1) +
+  scale_y_continuous(breaks = seq(0, 10, by = 1), limits = c(0, 10)) +
   labs(
     title = "LOS Index by Unit Count",
     subtitle = "Unit Count <= 10; LOS Index <= 10",
-    x = "Unit Count",
-    y = "LOS Index (Actual/Expected)"
+    y = "LOS Index",
+    x = NULL
   ) +
-  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 10, hjust = 0.5),
-        axis.title = element_text(size = 12),
-        axis.text = element_text(size = 10),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 8),
-        strip.text = element_text(size = 12, face = "bold"),
-        panel.spacing = unit(1.5, "lines"))
+  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title.y = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14,), 
+    axis.ticks.x = element_line(linewidth = 0.8),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(t = 10, r = 10, b = -10, l = 10))
+
+# Table Plot: 
+plot_table <- ggplot(n_counts, aes(x = UNIT_COUNT_F, y = 1)) +
+  geom_text(aes(label = label), size = 4, color = "black", fontface = "plain") + 
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = "%") + 
+  theme_void() +
+  theme(
+    axis.title.y = element_text(size = 12, face = "plain", angle = 0, vjust = 0.5),
+    plot.margin = margin(t = 0, r = 10, b = 10, l = 10)
+  )
+
+# 4. Combine
+final_plot <- plot_main / plot_table + plot_layout(heights = c(10, 1))
+final_plot
+```
+
+### LOS Index Boarders
+```{r boarder comp, message=FALSE}
+ggplot(no_outliers, aes(x = LOS_INDEX, fill = IS_BOARDER)) +
+  geom_density(alpha = 0.6) + 
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1) +
+  facet_grid(IS_BOARDER ~ ., 
+             labeller = as_labeller(c("FALSE" = "Non-Boarder", "TRUE" = "Boarder"))) +
+  labs(
+    title = "ED Boarding Effect on LOS Index",
+    subtitle = "Vertical distribution comparison",
+    x = "LOS Index",
+    y = "Density"
+  ) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95", color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+no_outliers %>%
+  group_by(IS_BOARDER) %>%
+  summarise(count = n(),
+            med = median(LOS_INDEX),
+            avg = mean(LOS_INDEX),
+            sd = sd(LOS_INDEX))
 ```
 
 # Correlation Tests

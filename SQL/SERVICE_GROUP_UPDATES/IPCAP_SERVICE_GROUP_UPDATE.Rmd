@@ -79,7 +79,7 @@ new_deps <- compare %>%
 
 # check if new mappings have bedcharges
 check <- tbl(con_prod, "IPCAP_BEDCHARGES") %>%
-  #filter(!(EPIC_DEPT_ID %in% c("8503016", "8503017"))) %>% # manually remove MSW L&D
+  filter(!(EPIC_DEPT_ID %in% c("8503016", "8503017"))) %>% # manually remove MSW L&D
   select(EPIC_DEPT_ID) %>%
   distinct() %>%
   collect() %>%

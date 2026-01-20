@@ -18,6 +18,8 @@ library(lubridate)
 library(ggplot2)
 library(knitr)
 library(kableExtra)
+library(patchwork)
+library(scales)
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
@@ -26,7 +28,7 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 # Data Setup
 ### Load Baseline
 ```{r load baseline, message=FALSE}
-# baseline IPCAP Bedcharge data
+# baseline IPCAP care team data
 baseline <- tbl(con_prod, "IPCAP_CARE_TEAM") %>% collect() %>%
   filter(ADMIT_DT_SRC >= as.Date("2024-06-01"),
          DSCH_DT_SRC <= as.Date("2025-09-30"),
@@ -39,7 +41,7 @@ baseline <- tbl(con_prod, "IPCAP_CARE_TEAM") %>% collect() %>%
 
 ### Care Teams
 ```{r care teams, message=FALSE}
-# break down each encounters stay into unit stays by number of days
+# break down each encounters stay into care team switches
 encounter_care_team <- baseline %>%  
   arrange(ENCOUNTER_NO, ATTEND_FROM_DTTM) %>%
   group_by(ENCOUNTER_NO) %>%
@@ -86,11 +88,9 @@ ggplot(plot_data, aes(x = CARE_TEAM_COUNT, y = LOS_INDEX)) +
   theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         axis.title = element_text(size = 12),
         axis.text = element_text(size = 10),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 8),
         strip.text = element_text(size = 12, face = "bold"),
-        panel.spacing = unit(1.5, "lines"))
-```
+        panel.spacing = unit(1.5, "lines"),
+        legend.position = "none")
 ```
 
 ### LOS Index X Unit Count (no outliers)
@@ -107,51 +107,51 @@ median_data <- no_outliers %>%
   group_by(CARE_TEAM_COUNT_F) %>%
   reframe(
     Median_LOS = median(LOS_INDEX, na.rm = TRUE),
-    CARE_TEAM_COUNT_NUM = as.numeric(CARE_TEAM_COUNT_F)
+    CARE_TEAM_COUNT_NUM = as.numeric(CARE_TEAM_COUNT_F))
+
+# group percents 
+n_counts <- no_outliers %>%
+  group_by(CARE_TEAM_COUNT_F) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(label = percent(n / sum(n), accuracy = 0.1))
+
+# Main Plot:
+plot_main <- ggplot(no_outliers, aes(x = CARE_TEAM_COUNT_F, y = LOS_INDEX)) + 
+  geom_violin(aes(fill = CARE_TEAM_COUNT_F), trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white", color = "black") +
+  geom_smooth(data = median_data, aes(x = CARE_TEAM_COUNT_NUM, y = Median_LOS), 
+              method = "lm", se = FALSE, linewidth = 2, color = "#FF00004D") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1.2) +
+  scale_y_continuous(breaks = seq(0, 10, by = 1), limits = c(0, 10)) +
+  labs(title = "LOS Index by Care Team Count",
+       subtitle = "Care Team Count <= 20; LOS Index <= 10",
+       y = "LOS Index",
+       x = NULL) + 
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title.y = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14,), 
+    axis.ticks.x = element_line(linewidth = 0.8),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(t = 10, r = 10, b = -10, l = 10))
+
+# Table Plot: 
+plot_table <- ggplot(n_counts, aes(x = CARE_TEAM_COUNT_F, y = 1)) +
+  geom_text(aes(label = label), size = 4, color = "black", fontface = "plain") + 
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = "%") + 
+  theme_void() +
+  theme(
+    axis.title.y = element_text(size = 12, face = "plain", angle = 0, vjust = 0.5),
+    plot.margin = margin(t = 0, r = 10, b = 10, l = 10)
   )
 
-# violin plot with linear regression line
-ggplot(no_outliers, aes(x = CARE_TEAM_COUNT_F, y = LOS_INDEX)) + 
-  geom_violin(
-    aes(fill = CARE_TEAM_COUNT_F), 
-    trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE
-  ) +
-  geom_boxplot(
-    width = 0.1, outlier.shape = NA, fill = "white", color = "black"
-  ) +
-  geom_smooth(
-    data = median_data,
-    aes(x = CARE_TEAM_COUNT_NUM, y = Median_LOS), 
-    method = "lm",           
-    se = FALSE,              
-    linewidth = 1.5,
-    color = "#FF00004D",
-  ) +
-  geom_hline(
-    yintercept = 1, 
-    linetype = "dashed", 
-    color = "black", 
-    alpha = 0.3,         
-    linewidth = 1         
-  ) +
-  scale_y_continuous(
-    breaks = seq(0, 10, by = 1), 
-    limits = c(0, 10)            
-  ) +
-  labs(
-    title = "LOS Index by Care Team Count",
-    subtitle = "Care Team Count <= 20; LOS Index <= 10",
-    x = "Care Team Count",
-    y = "LOS Index (Actual/Expected)"
-  ) +
-  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 10, hjust = 0.5),
-        axis.title = element_text(size = 12),
-        axis.text = element_text(size = 10),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 8),
-        strip.text = element_text(size = 12, face = "bold"),
-        panel.spacing = unit(1.5, "lines"))
+# 4. Combine
+final_plot <- plot_main / plot_table + plot_layout(heights = c(10, 1))
+
+final_plot
 ```
 
 # Correlation Tests

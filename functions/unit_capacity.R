@@ -20,7 +20,7 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
     summarise(DATASET = "BASELINE",
               BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
     mutate(BED_CAPACITY = case_when(
-      EXTERNAL_NAME == "MSH KP2 L&D" ~ 20,
+      EXTERNAL_NAME == "MSH KP2 L&D" ~ 20, # hard code bed cap based on Victoria's input
       TRUE ~ BED_CAPACITY)) %>%
     filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
            SERVICE_DATE >= min(baseline$SERVICE_DATE),

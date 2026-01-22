@@ -39,8 +39,8 @@ BEGIN
               ip.VIZ_EX_LOS,
               ip.MSDRG_CD_SRC,
               ip.MSDRG_DESC_MSX
-       from care_team c
-       left join ip on c.ENCOUNTER_NO = ip.ENCOUNTER_NO
+       from ip
+       left join care_team c on ip.ENCOUNTER_NO = c.ENCOUNTER_NO
        left join providers p on c.NPI = p.NPI
    )
    select *

@@ -20,8 +20,7 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 
 ```{r load current and new, include=FALSE}
 # current service group mappings
-current <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
-  filter(is.na(VALID_TO)) %>%
+current <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") 
   collect()
 
 # new service group mappings
@@ -38,6 +37,7 @@ new <- tbl(con_prod,
 ```{r compare current with new, include=FALSE}
 # compare current with new mappings
 compare <- current %>%
+  filter(is.na(VALID_TO)) %>%
   full_join(new, 
             by = c("EPIC_DEPT_ID" = "DEPARTMENT_ID"),
             suffix = c("_current", "_new")) %>%

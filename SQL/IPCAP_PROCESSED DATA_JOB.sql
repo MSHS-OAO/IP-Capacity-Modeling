@@ -41,6 +41,7 @@ BEGIN
    ),
    final AS (
        SELECT ip.ENCOUNTER_NO,
+              ip.EPIC_CSN,
               ip.MSMRN,
               ip.FACILITY_MSX,
               ip.DSCH_DT_SRC,

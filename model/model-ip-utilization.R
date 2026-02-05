@@ -32,7 +32,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       df <- df %>%
         filter(!is.na(EXTERNAL_NAME)) %>%
         group_by(ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, 
-                 UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
+                 DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
                  SERVICE_DATE, LOS_NO_SRC) %>%
         summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
         mutate(BED_CHARGES = case_when(

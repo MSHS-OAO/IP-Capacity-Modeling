@@ -6,7 +6,7 @@
 #
 #    http://shiny.rstudio.com/
 #
-
+library(openxlsx)
 library(shiny)
 library(knitr)
 library(tidyverse)
@@ -36,27 +36,31 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
 
 
-# List all CSV files in the directory
-bed_cap_csv <- list.files(paste0(cap_dir, "Tableau Data/Bed Capacity/"),
-                          pattern = "\\.csv$", full.names = TRUE)
-
-
-
-
 # Load Baseline Data
 base <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
   mutate(
     SERVICE_DATE = as.Date(SERVICE_DATE, format = "%Y%m%d"),
     SERVICE_MONTH = lubridate::floor_date(SERVICE_DATE, "month"),
-    FACILITY_MSX = case_when(
-      FACILITY_MSX == 'STL' ~ 'MSM',
-      FACILITY_MSX == 'RVT' ~ 'MSW',
-      FACILITY_MSX == 'BIB' ~ 'MSB',
-      FACILITY_MSX == 'BIP' ~ 'MSBI',
-      TRUE ~ FACILITY_MSX
+    LOC_NAME = case_when(
+      LOC_NAME == 'THE MOUNT SINAI HOSPITAL' ~ 'MSH',
+      LOC_NAME == 'MOUNT SINAI QUEENS'       ~ 'MSQ',
+      LOC_NAME == 'MOUNT SINAI BROOKLYN'     ~ 'MSB',
+      LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
+      LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
+      LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
+      TRUE ~ LOC_NAME
     )
   )
 
+baseline <- base %>%
+  filter(!is.na(EXTERNAL_NAME)) %>%
+  group_by(ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, 
+           DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
+           SERVICE_DATE, LOS_NO_SRC) %>%
+  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
+  mutate(BED_CHARGES = case_when(
+    BED_CHARGES > 1 ~ 1,
+    TRUE ~ BED_CHARGES)) 
 
 num_days <- as.numeric(difftime(max(base$SERVICE_DATE),
                                 min(base$SERVICE_DATE), 
@@ -64,12 +68,54 @@ num_days <- as.numeric(difftime(max(base$SERVICE_DATE),
 
 
 
+# load mapping file for all Epic IDs
+epic_mapping <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
+  collect() %>%
+  mutate(VALID_TO = case_when(
+    is.na(VALID_TO) ~ Sys.Date(),
+    TRUE ~ VALID_TO),
+    VALID_FROM = as.Date(VALID_FROM),
+    VALID_TO = as.Date(VALID_TO))
+
 # read each CSV and list average bed capacity for each unit monthly
 bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
                     show_col_types = FALSE) %>%
   rename(HOSPITAL = Location,
          SERVICE_GROUP = `Service Group`,
          EXTERNAL_NAME = Unit) %>%
+  mutate(SERVICE_DATE = mdy(`Day of Census Day`)) %>%
+  group_by(HOSPITAL,EXTERNAL_NAME, SERVICE_DATE) %>%
+  summarise(DATASET = "BASELINE",
+            BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
+  mutate(BED_CAPACITY = case_when(
+    EXTERNAL_NAME == "MSH KP2 L&D" ~ 20,
+    TRUE ~ BED_CAPACITY)) %>%
+  filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
+         SERVICE_DATE >= min(baseline$SERVICE_DATE),
+         SERVICE_DATE <= max(baseline$SERVICE_DATE)) %>%
+  left_join(epic_mapping, 
+            by = join_by(EXTERNAL_NAME == EXTERNAL_NAME,
+                         SERVICE_DATE >= VALID_FROM,
+                         SERVICE_DATE <= VALID_TO)) %>%
+  mutate(
+    LOC_NAME = case_when(
+      LOC_NAME == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
+      LOC_NAME == "MOUNT SINAI BROOKLYN" ~ "MSB",
+      LOC_NAME == "MOUNT SINAI MORNINGSIDE" ~ "MSM",
+      LOC_NAME == "MOUNT SINAI QUEENS" ~ "MSQ",
+      LOC_NAME == "MOUNT SINAI WEST" ~ "MSW",
+      LOC_NAME == "THE MOUNT SINAI HOSPITAL" ~ "MSH")) %>%
+  ungroup() %>%
+  select(SERVICE_DATE, LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, BED_CAPACITY, DATASET)
+
+
+
+
+#***
+old_bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
+                        show_col_types = FALSE) %>%
+  rename(HOSPITAL = Location,
+         SERVICE_GROUP = `Service Group`) %>%
   mutate(
     HOSPITAL = case_when(
       HOSPITAL == "MOUNT SINAI BETH ISRAEL" ~ "MSBI",
@@ -78,40 +124,26 @@ bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
       HOSPITAL == "MOUNT SINAI QUEENS" ~ "MSQ",
       HOSPITAL == "MOUNT SINAI WEST" ~ "MSW",
       HOSPITAL == "THE MOUNT SINAI HOSPITAL" ~ "MSH"),
-    SERVICE_GROUP = case_when(
-      EXTERNAL_NAME == "MSH KCC 2 South" ~ "Rehab",
-      TRUE ~ SERVICE_GROUP),
     SERVICE_DATE = mdy(`Day of Census Day`)) %>%
-  group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE) %>%
+  group_by(HOSPITAL, SERVICE_GROUP, SERVICE_DATE) %>%
   summarise(DATASET = "BASELINE",
             BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
   filter(SERVICE_DATE >= min(base$SERVICE_DATE),
          SERVICE_DATE <= max(base$SERVICE_DATE))
-
-
-
-baseline <- base %>%
-  filter(!is.na(EXTERNAL_NAME)) %>%
-  group_by(ENCOUNTER_NO, MSDRG_CD_SRC, FACILITY_MSX, ATTENDING_VERITY_REPORT_SERVICE, 
-           UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
-           SERVICE_DATE, LOS_NO_SRC) %>%
-  summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
-  mutate(BED_CHARGES = case_when(
-    BED_CHARGES > 1 ~ 1,
-    TRUE ~ BED_CHARGES)) 
+#***
 
 # get total daily volume for each service line and unit type
 baseline <- baseline %>%
-  group_by(FACILITY_MSX, SERVICE_GROUP,EXTERNAL_NAME,ATTENDING_VERITY_REPORT_SERVICE, SERVICE_MONTH, SERVICE_DATE) %>%
+  group_by(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME,ATTENDING_VERITY_REPORT_SERVICE, SERVICE_MONTH, SERVICE_DATE) %>%
   summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop")
 
 
 
 baseline <- baseline %>%
-  group_by(FACILITY_MSX, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, SERVICE_DATE) %>%
+  group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, SERVICE_DATE) %>%
   summarise(DAILY_DEMAND = sum(DAILY_DEMAND, na.rm = TRUE), .groups = "drop") %>%
   collect() %>%
-  left_join(bed_cap, by = c("FACILITY_MSX" = "HOSPITAL", 
+  left_join(bed_cap, by = c("LOC_NAME" = "LOC_NAME", 
                             "SERVICE_GROUP" = "SERVICE_GROUP",
                             "SERVICE_DATE" = "SERVICE_DATE",
                             "EXTERNAL_NAME" = "EXTERNAL_NAME")) 
@@ -120,19 +152,22 @@ baseline <- baseline %>%
   mutate(UTILIZATION = DAILY_DEMAND/BED_CAPACITY)
 
 
+baseline$EXTERNAL_NAME <- sub("^\\S+\\s+", "", baseline$EXTERNAL_NAME)
+
+
 # *************************************************  Overall utilization ***************************************************
 
 df_overall <- baseline
 
 df_overall_day_count <- df_overall %>%
-  add_count(FACILITY_MSX, SERVICE_GROUP,EXTERNAL_NAME, name = "COUNT_OF_SERVICE_DAYS") %>%
+  add_count(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME, name = "COUNT_OF_SERVICE_DAYS") %>%
   select(-DAILY_DEMAND,-SERVICE_MONTH,-BED_CAPACITY)
 
 df_overall <- df_overall %>%
-  group_by(FACILITY_MSX, SERVICE_GROUP,EXTERNAL_NAME) %>%
+  group_by(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME) %>%
   summarise(UTILIZATION_SUM = sum(UTILIZATION), .groups = "drop")
 
-df_overall <- df_overall %>% left_join(df_overall_day_count,by = c("FACILITY_MSX" = "FACILITY_MSX",
+df_overall <- df_overall %>% left_join(df_overall_day_count,by = c("LOC_NAME" = "LOC_NAME",
                                                                    "SERVICE_GROUP" = "SERVICE_GROUP",
                                                                    "EXTERNAL_NAME" = "EXTERNAL_NAME"))
 df_overall <- df_overall %>% select(-UTILIZATION,-SERVICE_DATE)
@@ -142,8 +177,6 @@ df_overall <- df_overall %>% mutate(AVG_OVERALL_UTILIZATION = UTILIZATION_SUM/CO
 df_overall <- unique(df_overall)
 
 df_overall <- df_overall %>% select(-UTILIZATION_SUM,-COUNT_OF_SERVICE_DAYS)
-
-df_overall$EXTERNAL_NAME <- sub("^\\S+\\s+", "", df_overall$EXTERNAL_NAME)
 
 df_overall <- df_overall %>% filter(!(is.na(AVG_OVERALL_UTILIZATION)))
 
@@ -164,28 +197,27 @@ df_weekdays <- df_weekdays %>% filter(!DAY_OF_WEEK %in% c("Saturday", "Sunday"))
 df_weekdays <- df_weekdays %>% select(-BED_CAPACITY,-DAILY_DEMAND,-DAY_OF_WEEK)
 
 df_weekdays <- df_weekdays %>%
-  add_count(FACILITY_MSX, SERVICE_GROUP,EXTERNAL_NAME, name = "DAY_REPITITIONS") 
+  add_count(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME, name = "DAY_REPITITIONS") 
 
 df_weekdays <- df_weekdays %>%
-  group_by(FACILITY_MSX,SERVICE_GROUP,EXTERNAL_NAME) %>%
+  group_by(LOC_NAME,SERVICE_GROUP,EXTERNAL_NAME) %>%
   mutate(SUM_OF_UTILIZATION = sum(UTILIZATION))
 
 df_weekdays <- df_weekdays %>% select(-SERVICE_MONTH,-SERVICE_DATE,-UTILIZATION)
 
 
-df_weekdays <- df_weekdays %>% mutate(AVG_WEEKDAY_UTILIZATION = SUM_OF_UTILIZATION/DAY_REPITITIONS)
+df_weekdays <- df_weekdays %>% mutate(WEEKDAY_AVG_UTILIZATION = SUM_OF_UTILIZATION/DAY_REPITITIONS)
 
 df_weekdays <- df_weekdays %>% select(-DAY_REPITITIONS,-SUM_OF_UTILIZATION)
 
 df_weekdays <- unique(df_weekdays)
 
-df_weekdays <- df_weekdays %>% filter(!is.na(AVG_WEEKDAY_UTILIZATION))
+df_weekdays <- df_weekdays %>% filter(!is.na(WEEKDAY_AVG_UTILIZATION))
 
-df_weekdays$EXTERNAL_NAME <- sub("^\\S+\\s+", "", df_weekdays$EXTERNAL_NAME)
 
 df_weekdays <- df_weekdays %>%
   mutate(
-    AVG_WEEKDAY_UTILIZATION = round(AVG_WEEKDAY_UTILIZATION * 100, 2)
+    WEEKDAY_AVG_UTILIZATION = round(WEEKDAY_AVG_UTILIZATION * 100, 2)
   )
 
 # ************************************************* day of week utilization ***************************************************
@@ -200,11 +232,11 @@ df_day_of_week <- df_day_of_week %>% select(-BED_CAPACITY,-DAILY_DEMAND)
 
 # COUNT # of rows with facility/unit/day of week combination for avg calculation
 df_day_of_week <- df_day_of_week %>%
-  add_count(FACILITY_MSX, SERVICE_GROUP,EXTERNAL_NAME, DAY_OF_WEEK, name = "DAY_OF_WEEK_REPITITIONS") #DAY_OF_WEEK_REPITITIONS
+  add_count(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME, DAY_OF_WEEK, name = "DAY_OF_WEEK_REPITITIONS") #DAY_OF_WEEK_REPITITIONS
 
 
 df_day_of_week <- df_day_of_week %>%
-  group_by(FACILITY_MSX,SERVICE_GROUP,EXTERNAL_NAME,DAY_OF_WEEK) %>%
+  group_by(LOC_NAME,SERVICE_GROUP,EXTERNAL_NAME,DAY_OF_WEEK) %>%
   mutate(SUM_OF_UTILIZATION = sum(UTILIZATION))
 
 df_day_of_week <-df_day_of_week %>% select(-SERVICE_MONTH,-SERVICE_DATE,-UTILIZATION)
@@ -218,14 +250,30 @@ df_day_of_week <- unique(df_day_of_week)
 
 df_day_of_week <- df_day_of_week %>% select(-DAY_OF_WEEK_REPITITIONS,-SUM_OF_UTILIZATION)
 
-df_day_of_week$EXTERNAL_NAME <- sub("^\\S+\\s+", "", df_day_of_week$EXTERNAL_NAME)
 
 df_day_of_week <- df_day_of_week %>%
   mutate(
     AVG_UTILIZATION_DAY_OF_WEEK = round(AVG_UTILIZATION_DAY_OF_WEEK * 100, 2)
   )
 
+# ************************************************* STATS ***************************************************
 
+df_stats <- baseline %>%
+  mutate(UTILIZATION = round(UTILIZATION * 100, 2)) %>%
+  group_by(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME) %>%
+  mutate(
+    OVERALL_MIN_UTILIZATION = if (all(is.na(UTILIZATION))) NA_real_ else min(UTILIZATION, na.rm = TRUE),
+    OVERALL_MAX_UTILIZATION = if (all(is.na(UTILIZATION))) NA_real_ else max(UTILIZATION, na.rm = TRUE),
+    UTILIZATION_SD = if (sum(!is.na(UTILIZATION)) < 2) NA_real_ else round(sd(UTILIZATION, na.rm = TRUE), 2)
+  ) %>%
+  ungroup()
+
+df_stats <- df_stats %>% 
+  select(-SERVICE_MONTH,-SERVICE_DATE,-DATASET,-DAILY_DEMAND,-BED_CAPACITY,-UTILIZATION) %>%
+  unique()
+
+
+# ************************************************* merge everything in final_df  ***************************************************
 
 final_df <- df_day_of_week %>%
   pivot_wider(
@@ -233,97 +281,169 @@ final_df <- df_day_of_week %>%
     values_from = AVG_UTILIZATION_DAY_OF_WEEK
   ) %>%
   mutate(
-    AVG_WEEKEND_UTILIZATION = round((Saturday + Sunday) / 2, 2)
+    WEEKEND_AVG_UTILIZATION = round((Saturday + Sunday) / 2, 2)
   )
 
 
 final_df <- final_df %>%
   left_join(
     df_weekdays %>% 
-      select(FACILITY_MSX, SERVICE_GROUP, EXTERNAL_NAME, AVG_WEEKDAY_UTILIZATION),
-    by = c("FACILITY_MSX", "SERVICE_GROUP", "EXTERNAL_NAME")
+      select(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, WEEKDAY_AVG_UTILIZATION),
+    by = c("LOC_NAME", "SERVICE_GROUP", "EXTERNAL_NAME")
   )
 
 
 final_df <- final_df %>%
   left_join(
     df_overall %>% 
-      select(FACILITY_MSX, SERVICE_GROUP, EXTERNAL_NAME, AVG_OVERALL_UTILIZATION),
-    by = c("FACILITY_MSX", "SERVICE_GROUP", "EXTERNAL_NAME")
+      select(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, AVG_OVERALL_UTILIZATION),
+    by = c("LOC_NAME", "SERVICE_GROUP", "EXTERNAL_NAME")
   )
 
 
 final_df <- final_df %>%
-  mutate(WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE = AVG_WEEKEND_UTILIZATION - AVG_WEEKDAY_UTILIZATION)
+  mutate(WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE = WEEKEND_AVG_UTILIZATION - WEEKDAY_AVG_UTILIZATION)
+
+
+final_df <- final_df %>%
+  left_join(
+    df_stats %>%
+      select(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME, OVERALL_MIN_UTILIZATION, OVERALL_MAX_UTILIZATION,UTILIZATION_SD),
+    by = c("LOC_NAME", "SERVICE_GROUP","EXTERNAL_NAME")
+  )
+
+
+final_df <- final_df %>%
+  rename_with(toupper)
+
+dow_cols <- c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
+
+
+final_df <- final_df %>%
+  rowwise() %>%
+  mutate(
+    .min_val = min(c_across(all_of(dow_cols)), na.rm = TRUE),
+    .max_val = max(c_across(all_of(dow_cols)), na.rm = TRUE),
+    
+    DOW_MIN = {
+      vals <- c_across(all_of(dow_cols))
+      nm <- dow_cols[which(vals == .min_val)]
+      paste(nm, collapse = ", ")
+    },
+    
+    DOW_MAX = {
+      vals <- c_across(all_of(dow_cols))
+      nm <- dow_cols[which(vals == .max_val)]
+      paste(nm, collapse = ", ")
+    },
+    
+    DOW_MIN = paste0(DOW_MIN, ": ", sprintf("%.2f", .min_val), "%"),
+    DOW_MAX = paste0(DOW_MAX, ": ", sprintf("%.2f", .max_val), "%"),
+    
+    DOW_DIFF = .max_val - .min_val
+  ) %>%
+  ungroup() %>%
+  select(-.min_val, -.max_val)
+
+
 
 
 final_df <- final_df %>%
   select(
-    FACILITY_MSX, 
+    LOC_NAME, 
     SERVICE_GROUP,
     EXTERNAL_NAME,
-    AVG_WEEKEND_UTILIZATION,
-    AVG_WEEKDAY_UTILIZATION,
+    WEEKEND_AVG_UTILIZATION,
+    WEEKDAY_AVG_UTILIZATION,
     WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE,
     AVG_OVERALL_UTILIZATION,
+    UTILIZATION_SD,
+    OVERALL_MIN_UTILIZATION,
+    OVERALL_MAX_UTILIZATION,
+    DOW_MIN,
+    DOW_MAX,
+    DOW_DIFF,
     everything(),
     -DATASET
   )
 
-# removing KP2 L&D 
-final_df <- final_df %>% filter(EXTERNAL_NAME != "KP2 L&D")
+
 
 #creating polished excel sheet and storing
-final_df2 <- final_df %>%
+final_df_unit <- final_df %>%
   mutate(
-    WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE = round(WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE / 100, 4)
-  ) %>%
-  mutate(across(
-    c(
-      AVG_WEEKEND_UTILIZATION,
-      AVG_WEEKDAY_UTILIZATION,
-      AVG_OVERALL_UTILIZATION,
-      Saturday, Sunday, Monday, Tuesday, Wednesday, Thursday, Friday
-    ),
-    ~ round(.x / 100, 4)   # numeric decimals, no "%"
-  ))
+    across(
+      c(
+        WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE,
+        WEEKEND_AVG_UTILIZATION,
+        WEEKDAY_AVG_UTILIZATION,
+        AVG_OVERALL_UTILIZATION,
+        #UTILIZATION_SD,
+        OVERALL_MIN_UTILIZATION,
+        OVERALL_MAX_UTILIZATION,
+        DOW_DIFF,
+        SATURDAY, SUNDAY, MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY
+      ),
+      ~ round(.x / 100, 4)
+    )
+  )
 
-library(openxlsx)
+#final_df_unit$UTILIZATION_SD <- round(final_df_unit$UTILIZATION_SD * 100, 2)
+
 
 wb <- createWorkbook()
 addWorksheet(wb, "Sheet1")
 
-writeData(wb, "Sheet1", final_df2)
+writeData(wb, "Sheet1", final_df_unit)
 
 # Columns that should be displayed as percentages
 pct_cols <- c(
-  "AVG_WEEKEND_UTILIZATION",
-  "AVG_WEEKDAY_UTILIZATION",
+  "WEEKEND_AVG_UTILIZATION",
+  "WEEKDAY_AVG_UTILIZATION",
   "AVG_OVERALL_UTILIZATION",
-  "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+  "WEEKEND_AVG_UTILIZATION",
+  "WEEKDAY_AVG_UTILIZATION",
+  #"UTILIZATION_SD",
+  "OVERALL_MIN_UTILIZATION",
+  "OVERALL_MAX_UTILIZATION",
+  "DOW_DIFF",
+  "SATURDAY", "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",
   "WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE"
 )
 
-pct_style <- createStyle(numFmt = "0.00%")  # always 2 decimals, shows like 12.87%
+pct_style <- createStyle(numFmt = "0.00%")
+sd_style  <- createStyle(numFmt = "0.00")
 
-for (col in pct_cols) {
-  col_index <- which(names(final_df2) == col)
+pct_cols_no_sd <- setdiff(pct_cols, "UTILIZATION_SD")
+
+for (col in pct_cols_no_sd) {
+  col_index <- which(names(final_df_unit) == col)
   addStyle(
     wb, sheet = 1,
     style = pct_style,
     cols = col_index,
-    rows = 2:(nrow(final_df2) + 1),  # row 1 is header
+    rows = 2:(nrow(final_df_unit) + 1),
     gridExpand = TRUE
   )
 }
 
-saveWorkbook(wb, "final_df2.xlsx", overwrite = TRUE)
+sd_col <- which(names(final_df_unit) == "UTILIZATION_SD")
+addStyle(
+  wb, sheet = 1,
+  style = sd_style,
+  cols = sd_col,
+  rows = 2:(nrow(final_df_unit) + 1),
+  gridExpand = TRUE
+)
 
-assign("final_df2", final_df2, envir = .GlobalEnv)
+saveWorkbook(wb, "~/IP-Capacity-Modeling/analysis/utilization_by_day_of_week/DOW_EXTERNAL_NAME.xlsx", overwrite = TRUE)
 
 
-hospital_choices <- sort(unique(df_day_of_week$FACILITY_MSX))
-msh_df <- baseline %>% filter(FACILITY_MSX == "MSH")
+assign("final_df_unit", final_df_unit, envir = .GlobalEnv)
+
+
+hospital_choices <- sort(unique(df_day_of_week$LOC_NAME))
+msh_df <- baseline %>% filter(LOC_NAME == "MSH")
 service_choices  <- sort(unique(msh_df$SERVICE_GROUP))
 unit_choices <- sort(unique(df_day_of_week$EXTERNAL_NAME))
 
@@ -398,7 +518,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$dropdown1, {
     service_choices <- df_day_of_week %>%
-      filter(FACILITY_MSX %in% input$dropdown1) %>%
+      filter(LOC_NAME %in% input$dropdown1) %>%
       distinct(SERVICE_GROUP) %>%
       arrange(SERVICE_GROUP) %>%
       pull(SERVICE_GROUP)
@@ -415,7 +535,7 @@ server <- function(input, output, session) {
     req(input$dropdown1, input$dropdown2)
     df_day_of_week %>%
       filter(
-        FACILITY_MSX  == input$dropdown1,
+        LOC_NAME  == input$dropdown1,
         SERVICE_GROUP == input$dropdown2
       )
   })
@@ -465,20 +585,20 @@ server <- function(input, output, session) {
           
           overall_row <- df_overall %>%
             filter(
-              FACILITY_MSX  == input$dropdown1,
+              LOC_NAME  == input$dropdown1,
               SERVICE_GROUP == input$dropdown2,
               EXTERNAL_NAME == this_unit
             )
           
           weekday_row <- df_weekdays %>%
             filter(
-              FACILITY_MSX  == input$dropdown1,
+              LOC_NAME  == input$dropdown1,
               SERVICE_GROUP == input$dropdown2,
               EXTERNAL_NAME == this_unit
             )
           
           overall_val <- if (nrow(overall_row) > 0) overall_row$AVG_OVERALL_UTILIZATION[1] else NA_real_
-          weekday_val <- if (nrow(weekday_row) > 0) weekday_row$AVG_WEEKDAY_UTILIZATION[1] else NA_real_
+          weekday_val <- if (nrow(weekday_row) > 0) weekday_row$WEEKDAY_AVG_UTILIZATION[1] else NA_real_
           
           max_val <- suppressWarnings(max(c(overall_val, weekday_val), na.rm = TRUE))
           scale_factor <- if (!is.infinite(max_val) && max_val <= 1) 100 else 1
@@ -525,15 +645,15 @@ server <- function(input, output, session) {
         output[[plotname_summary]] <- renderPlot({
           summary_row <- final_df %>%
             dplyr::filter(
-              FACILITY_MSX  == input$dropdown1,
+              LOC_NAME  == input$dropdown1,
               SERVICE_GROUP == input$dropdown2,
               EXTERNAL_NAME == this_unit
             )
           
           validate(need(nrow(summary_row) > 0, "No summary data available."))
           
-          weekend_val <- summary_row$AVG_WEEKEND_UTILIZATION[1]
-          weekday_val <- summary_row$AVG_WEEKDAY_UTILIZATION[1]
+          weekend_val <- summary_row$WEEKEND_AVG_UTILIZATION[1]
+          weekday_val <- summary_row$WEEKDAY_AVG_UTILIZATION[1]
           overall_val <- summary_row$AVG_OVERALL_UTILIZATION[1]
           
           max_val <- suppressWarnings(max(c(weekend_val, weekday_val, overall_val), na.rm = TRUE))

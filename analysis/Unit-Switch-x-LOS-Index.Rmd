@@ -220,7 +220,8 @@ no_outliers %>%
   summarise(count = n(),
             med = median(LOS_INDEX),
             avg = mean(LOS_INDEX),
-            sd = sd(LOS_INDEX)) %>%
+            sd = sd(LOS_INDEX),
+            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
   kable() %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
                 font_size = 10,
@@ -255,7 +256,8 @@ no_outliers %>%
   summarise(count = n(),
             med = median(LOS_INDEX),
             avg = mean(LOS_INDEX),
-            sd = sd(LOS_INDEX)) %>%
+            sd = sd(LOS_INDEX),
+            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
   kable() %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
                 font_size = 10,

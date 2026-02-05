@@ -21,7 +21,6 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 ```{r load current and new, include=FALSE}
 # current service group mappings
 current <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
-  filter(is.na(VALID_TO)) %>%
   collect()
 
 # new service group mappings
@@ -38,6 +37,7 @@ new <- tbl(con_prod,
 ```{r compare current with new, include=FALSE}
 # compare current with new mappings
 compare <- current %>%
+  filter(is.na(VALID_TO)) %>%
   full_join(new, 
             by = c("EPIC_DEPT_ID" = "DEPARTMENT_ID"),
             suffix = c("_current", "_new")) %>%
@@ -79,6 +79,7 @@ new_deps <- compare %>%
 
 # check if new mappings have bedcharges
 check <- tbl(con_prod, "IPCAP_BEDCHARGES") %>%
+  filter(!(EPIC_DEPT_ID %in% c("8503016", "8503017"))) %>% # manually remove MSW L&D
   select(EPIC_DEPT_ID) %>%
   distinct() %>%
   collect() %>%
@@ -98,8 +99,8 @@ if (nrow(check) > 0) {
 }
 ```
 
-### Update Mapping
-```{r update changes, include=FALSE}
+### updates Mapping
+```{r updates changes, include=FALSE}
 
 # only execute if change has data
 if (nrow(change) > 0) {
@@ -113,16 +114,16 @@ if (nrow(change) > 0) {
            VALID_TO = NA) %>%
     select(LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM, VALID_TO)
   
-  # update current mappings and combine with changes
-  update <- current %>%
+  # updates current mappings and combine with changes
+  updatess <- current %>%
     filter(EPIC_DEPT_ID %in% change$EPIC_DEPT_ID) %>%
     mutate(VALID_TO = Sys.Date() - 1) %>%
     rbind(change)
   
-  # replace updates and changes in current mappings
-  final <- current %>%
-    filter(!(EPIC_DEPT_ID %in% update$EPIC_DEPT_ID)) %>%
-    rbind(update)
+  # replace updatess and changes in current mappings
+  updatess <- current %>%
+    filter(!(EPIC_DEPT_ID %in% updatess$EPIC_DEPT_ID)) %>%
+    rbind(updatess)
   
 }
 ```
@@ -142,13 +143,24 @@ if (nrow(check) > 0) {
            VALID_TO = as.Date(VALID_TO)) %>%
     select(LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM, VALID_TO)
   
-  # bind new deps to mapping table
-  final <- final %>%
-    rbind(deps_added)
+  if (exists("updates")) {
+    # bind new deps to mapping table
+    updates <- updates %>%
+      rbind(deps_added)
+  } else {
+    updates <- current %>%
+      rbind(deps_added)
+  }
 }
 ```
 
 ```{r send to DB, include=FALSE}
+
+if (exists("updates")) {
+  final <- updates
+} else {
+  final <- current
+}
 
 if (exists("final")) {
   # define target table
@@ -161,19 +173,5 @@ if (exists("final")) {
     # 2. Insert
     dbWriteTable(con_prod, SQL(target_table), final, append = TRUE, row.names = FALSE)
   })
-}
-```
-
-```{r print changes, echo=FALSE}
-
-if (exists("final")) {
-  # print everything that changed
-  deps_added %>%
-    rbind(update) %>%
-    arrange(EPIC_DEPT_ID) %>%
-    kable() %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
-                  font_size = 10,
-                  full_width = F)
 }
 ```

@@ -11,7 +11,10 @@ BEGIN
    with ip as (
        select distinct
            ENCOUNTER_NO,
+           EPIC_CSN,
+           FACILITY_MSX,
            ADMIT_DT_SRC,
+           DSCH_DT_SRC,
            SERVICE_DESC_MSX,
            LOS_NO_SRC,
            VIZ_EX_LOS,
@@ -20,27 +23,40 @@ BEGIN
        from IPCAP_BEDCHARGES
    ), care_team as (
        select *
-       from MS_INSIGHT.v_temp_22_ra
+       from MS_INSIGHT.v_ra_mshs_ip_22
        where ENCOUNTER_NO in (select distinct ENCOUNTER_NO from ip)
    ), providers as (
        select *
        from MSX_PROVIDER_V
        where NPI in (select distinct NPI from care_team)
    ), final as (
-       select c.*,
-              p.PROV_TYPE,
-              p.VERITY_DEPT_1_CD_SRC,
-              p.VERITY_DEPT_1_DESC_SRC,
-              p.VERITY_DIV_CD_SRC,
-              p.VERITY_DIV_DESC_SRC,
+       select ip.ENCOUNTER_NO,
+              ip.EPIC_CSN,
               ip.ADMIT_DT_SRC,
+              ip.DSCH_DT_SRC,
               ip.SERVICE_DESC_MSX,
               ip.LOS_NO_SRC,
               ip.VIZ_EX_LOS,
               ip.MSDRG_CD_SRC,
-              ip.MSDRG_DESC_MSX
-       from care_team c
-       left join ip on c.ENCOUNTER_NO = ip.ENCOUNTER_NO
+              ip.MSDRG_DESC_MSX,
+              c.NPI,
+              c.TS,
+              c.DEA_NUMBER,
+              c.MSMRN,
+              ip.FACILITY_MSX,
+              c.YEARMO_MSX,
+              c.LINE,
+              c.PROVIDERID,
+              c.PROV_NAME as MD_PROV_NM,
+              c.STARTINSTANT as ATTEND_FROM_DTTM,
+              c.ATTEND_TO_DTTM,
+              p.PROV_TYPE,
+              p.VERITY_DEPT_1_CD_SRC,
+              p.VERITY_DEPT_1_DESC_SRC,
+              p.VERITY_DIV_CD_SRC,
+              p.VERITY_DIV_DESC_SRC
+       from ip
+       left join care_team c on ip.ENCOUNTER_NO = c.ENCOUNTER_NO
        left join providers p on c.NPI = p.NPI
    )
    select *

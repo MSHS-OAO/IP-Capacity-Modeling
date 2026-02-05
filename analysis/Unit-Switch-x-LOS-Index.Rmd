@@ -40,14 +40,14 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
          !is.na(VIZ_EX_LOS),
          !(SERVICE_DESC_MSX %in% c("PSYCHIATRY", "REHABILITATION", "CHEMICAL DEPENDECY")))
 ```
+
 ### Encounters by Day
 ```{r encounter by day, message=FALSE}
 
-emergency_ids <- c("8504009", "8502025", "5119226", "8505028", "8503006", "8501001")
-
 # LOS for each care team (care team must have a service line) on IP units
 encounter_by_day <- baseline %>%
-  group_by(ENCOUNTER_NO, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, DSCH_DT_SRC, 
+  group_by(ENCOUNTER_NO, FACILITY_MSX, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, 
+           DSCH_DT_SRC, ADMIT_UNIT_DESC_MSX, DSCH_UNIT_DESC_MSX,
            ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, MSDRG_DESC_MSX, 
            EPIC_DEPT_ID, EPIC_DEPT_NAME, EXTERNAL_NAME, SERVICE_GROUP, 
            SERVICE_DATE) %>%
@@ -63,31 +63,42 @@ encounter_by_day <- baseline %>%
       is.na(EXTERNAL_NAME) ~ paste0("(NON IP) ", EPIC_DEPT_NAME),
       TRUE ~ EXTERNAL_NAME),
     SERVICE_GROUP = case_when(
-      is.na(SERVICE_GROUP) ~ "NON IP",
-      TRUE ~ SERVICE_GROUP)) %>%
-  group_by(ENCOUNTER_NO) %>%
-  mutate(IS_BOARDER = any(EPIC_DEPT_ID %in% emergency_ids))
+      is.na(SERVICE_GROUP) ~ EXTERNAL_NAME,
+      TRUE ~ SERVICE_GROUP))
 ```
 
-### Unit Stays
+### Unit Stays and Patient Identifiers
 ```{r encounter units, message=FALSE}
+
+emergency_ids <- c("8504009", "8502025", "5119226", "8505028", "8503006", "8501001")
+
 # break down each encounters stay into unit stays by number of days
 encounter_unit_stays <- encounter_by_day %>%  
-  arrange(ENCOUNTER_NO, SERVICE_DATE, IS_BOARDER) %>%
+  arrange(ENCOUNTER_NO, SERVICE_DATE) %>%
   group_by(ENCOUNTER_NO) %>%
-  mutate(UNIT_CHANGE = EXTERNAL_NAME != lag(EXTERNAL_NAME),
-         DATE_GAP    = SERVICE_DATE != lag(SERVICE_DATE) + days(1),
-         NEW_STAY    = is.na(lag(SERVICE_DATE)) | UNIT_CHANGE | DATE_GAP,
-         STAY_ID     = cumsum(NEW_STAY))
+  mutate(
+    UNIT_CHANGE = EXTERNAL_NAME != lag(EXTERNAL_NAME),
+    DATE_GAP    = SERVICE_DATE != lag(SERVICE_DATE) + days(1),
+    NEW_STAY    = is.na(lag(SERVICE_DATE)) | UNIT_CHANGE | DATE_GAP,
+    STAY_ID     = cumsum(NEW_STAY),
+         
+    SERVICE_CHANGE = SERVICE_GROUP != lag(SERVICE_GROUP),
+    NEW_SERVICE    = is.na(lag(SERVICE_DATE)) | SERVICE_CHANGE | DATE_GAP,
+    SERVICE_ID     = cumsum(NEW_SERVICE),
+    
+    IS_BOARDER = any(EPIC_DEPT_ID %in% emergency_ids) &
+                 !(last(EPIC_DEPT_ID) %in% emergency_ids))
 ```
 
 ### Unit Switch
 ```{r unit stays, message=FALSE}
 # for each encounter get the total unit switches
 encounter_unit_switch <- encounter_unit_stays %>%
-  group_by(ENCOUNTER_NO, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
+  group_by(ENCOUNTER_NO, FACILITY_MSX, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
            MSDRG_DESC_MSX, IS_BOARDER, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
-  summarise(UNIT_COUNT = max(STAY_ID))
+  summarise(UNIT_COUNT = max(STAY_ID),
+            SERVICE_COUNT = max(SERVICE_ID)) %>%
+  mutate(FLAG = UNIT_COUNT > SERVICE_COUNT)
 
 head(encounter_unit_switch) %>%
   kable() %>%
@@ -141,7 +152,7 @@ median_data <- no_outliers %>%
 n_counts <- no_outliers %>%
   group_by(UNIT_COUNT_F) %>%
   summarise(n = n(), .groups = "drop") %>%
-  mutate(label = percent(n / sum(n), accuracy = 0.1))
+  mutate(label = percent(n / sum(n), accuracy = 0.01))
 
 # Main Plot:
 plot_main <- ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) + 
@@ -190,7 +201,6 @@ ggplot(no_outliers, aes(x = LOS_INDEX, fill = IS_BOARDER)) +
              labeller = as_labeller(c("FALSE" = "Non-Boarder", "TRUE" = "Boarder"))) +
   labs(
     title = "ED Boarding Effect on LOS Index",
-    subtitle = "Vertical distribution comparison",
     x = "LOS Index",
     y = "Density"
   ) +
@@ -210,7 +220,48 @@ no_outliers %>%
   summarise(count = n(),
             med = median(LOS_INDEX),
             avg = mean(LOS_INDEX),
-            sd = sd(LOS_INDEX))
+            sd = sd(LOS_INDEX),
+            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```
+
+### LOS Index Level of Care
+```{r flag comp, message=FALSE}
+ggplot(no_outliers, aes(x = LOS_INDEX, fill = FLAG)) +
+  geom_density(alpha = 0.6) + 
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1) +
+  facet_grid(FLAG ~ ., 
+             labeller = as_labeller(c("FALSE" = "Standard", "TRUE" = "Non-Standard"))) +
+  labs(
+    title = "Level of Care Transfer Effect on LOS Index",
+    x = "LOS Index",
+    y = "Density"
+  ) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95", color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+no_outliers %>%
+  group_by(FLAG) %>%
+  summarise(count = n(),
+            med = median(LOS_INDEX),
+            avg = mean(LOS_INDEX),
+            sd = sd(LOS_INDEX),
+            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
 ```
 
 # Correlation Tests

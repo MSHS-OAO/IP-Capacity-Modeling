@@ -78,7 +78,9 @@ new_deps <- compare %>%
   pull(EPIC_DEPT_ID)
 
 # check if new mappings have bedcharges
-check <- tbl(con_prod, "IPCAP_BEDCHARGES") %>%
+check <- tbl(con_prod, "OE_CHARGE_DETAIL") %>%
+  filter(BILLING_CAT_DESC == 'BED CHARGES',
+         SERVICE_DATE >= 20240601) %>%
   filter(!(EPIC_DEPT_ID %in% c("8503016", "8503017"))) %>% # manually remove MSW L&D
   select(EPIC_DEPT_ID) %>%
   distinct() %>%

@@ -10,19 +10,24 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
       VALID_TO = as.Date(VALID_TO))
   
   # read each CSV and list average bed capacity for each unit monthly
-  bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_data.csv"),
+  bed_cap <- read_csv(paste0(cap_dir, "Tableau Data/Detail_Full Data_data.csv"),
                       show_col_types = FALSE) %>%
     rename(HOSPITAL = Location,
            SERVICE_GROUP = `Service Group`,
            EXTERNAL_NAME = Unit) %>%
     mutate(SERVICE_DATE = mdy(`Day of Census Day`)) %>%
-    group_by(HOSPITAL,EXTERNAL_NAME, SERVICE_DATE) %>%
+    group_by(HOSPITAL,EXTERNAL_NAME, BED_ID, SERVICE_DATE) %>%
     summarise(DATASET = "BASELINE",
-              BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE)) %>%
-    mutate(BED_CAPACITY = case_when(
+              BED_CAPACITY = sum(`Valid Room Keep`, na.rm = TRUE)) %>%
+    mutate(
+      BED_CAPACITY = case_when(
+        BED_CAPACITY > 1 ~ 1,
+        TRUE ~ BED_CAPACITY),
+        BED_CAPACITY = case_when(
       EXTERNAL_NAME == "MSH KP2 L&D" ~ 20, # hard code bed cap based on Victoria's input
       TRUE ~ BED_CAPACITY)) %>%
     filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
+           HOSPITAL != "MOUNT SINAI SOUTH NASSAU",
            SERVICE_DATE >= min(baseline$SERVICE_DATE),
            SERVICE_DATE <= max(baseline$SERVICE_DATE)) %>%
     left_join(epic_mapping, 

@@ -37,7 +37,8 @@ new <- tbl(con_prod,
 ```{r compare current with new, include=FALSE}
 # compare current with new mappings
 compare <- current %>%
-  filter(is.na(VALID_TO)) %>%
+  filter(!grepl("EMERGENCY", EXTERNAL_NAME),
+         is.na(VALID_TO)) %>%
   full_join(new, 
             by = c("EPIC_DEPT_ID" = "DEPARTMENT_ID"),
             suffix = c("_current", "_new")) %>%

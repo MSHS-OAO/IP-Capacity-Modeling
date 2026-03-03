@@ -47,7 +47,7 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 # LOS for each care team (care team must have a service line) on IP units
 encounter_by_day <- baseline %>%
   group_by(ENCOUNTER_NO, FACILITY_MSX, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, 
-           DSCH_DT_SRC, ADMIT_UNIT_DESC_MSX, DSCH_UNIT_DESC_MSX,
+           DSCH_DT_SRC, ADMIT_UNIT_DESC_MSX, DSCH_UNIT_DESC_MSX, ADMIT_TYPE_DESC_SRC,
            ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, MSDRG_DESC_MSX, 
            EPIC_DEPT_ID, EPIC_DEPT_NAME, EXTERNAL_NAME, SERVICE_GROUP, 
            SERVICE_DATE) %>%
@@ -95,7 +95,7 @@ encounter_unit_stays <- encounter_by_day %>%
 # for each encounter get the total unit switches
 encounter_unit_switch <- encounter_unit_stays %>%
   group_by(ENCOUNTER_NO, FACILITY_MSX, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
-           MSDRG_DESC_MSX, IS_BOARDER, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
+           MSDRG_DESC_MSX, ADMIT_TYPE_DESC_SRC, IS_BOARDER, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
   summarise(UNIT_COUNT = max(STAY_ID),
             SERVICE_COUNT = max(SERVICE_ID)) %>%
   mutate(FLAG = UNIT_COUNT > SERVICE_COUNT)
@@ -108,6 +108,29 @@ head(encounter_unit_switch) %>%
 ```
 
 # Visualizations
+### Full Population - LOS Distribution
+```{r population visualization}
+ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_NO_SRC)) +
+  geom_jitter(aes(colour = factor(UNIT_COUNT)),
+              width = .2) +
+  labs(
+    title = "Distribution of Unit Count and LOS Index",
+    x = "Unit Count",
+    y = "LOS "
+  ) +
+  scale_color_discrete(name = "Unit Count") +
+  scale_x_continuous(
+    breaks = seq(0, max(encounter_unit_switch$UNIT_COUNT), by = 1)) +
+  scale_y_continuous(
+    breaks = seq(0, max(encounter_unit_switch$LOS_NO_SRC), by = 1)) +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.spacing = unit(1.5, "lines"),
+        legend.position = "none")
+```
+
 ### Full Population - LOS Index Distribution
 ```{r population visualization}
 ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
@@ -132,11 +155,73 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
 ```
 
 ### LOS Index X Unit Count (no outliers)
-```{r no outliers, message=FALSE}
+```{r los index no outliers, message=FALSE}
 # remove outliers
 no_outliers <- encounter_unit_switch %>%
   filter(UNIT_COUNT <= 10,
          LOS_INDEX <= 10) %>%
+  mutate(UNIT_COUNT_F = factor(UNIT_COUNT, levels = 1:10, ordered = TRUE)) %>%
+  arrange(UNIT_COUNT_F)
+
+# calc median performance by unit count grouping
+median_data <- no_outliers %>%
+  group_by(UNIT_COUNT_F) %>%
+  reframe(
+    Median_LOS = median(LOS_INDEX, na.rm = TRUE),
+    UNIT_COUNT_NUM = as.numeric(UNIT_COUNT_F)
+  )
+
+# group percents 
+n_counts <- no_outliers %>%
+  group_by(UNIT_COUNT_F) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(label = percent(n / sum(n), accuracy = 0.01))
+
+# Main Plot:
+plot_main <- ggplot(no_outliers, aes(x = UNIT_COUNT_F, y = LOS_INDEX)) + 
+  geom_violin(aes(fill = UNIT_COUNT_F), trim = TRUE, alpha = 0.6, color = "gray30", show.legend = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white", color = "black") +
+  geom_smooth(data = median_data, aes(x = UNIT_COUNT_NUM, y = Median_LOS), method = "lm", se = FALSE, linewidth = 1.5, color = "#FF00004D") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1) +
+  scale_y_continuous(breaks = seq(0, 10, by = 1), limits = c(0, 10)) +
+  labs(
+    title = "LOS Index by Unit Count",
+    subtitle = "Unit Count <= 10; LOS Index <= 10",
+    y = "LOS Index",
+    x = NULL
+  ) +
+  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title.y = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14,), 
+    axis.ticks.x = element_line(linewidth = 0.8),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(t = 10, r = 10, b = -10, l = 10))
+
+# Table Plot: 
+plot_table <- ggplot(n_counts, aes(x = UNIT_COUNT_F, y = 1)) +
+  geom_text(aes(label = label), size = 4, color = "black", fontface = "plain") + 
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = "%") + 
+  theme_void() +
+  theme(
+    axis.title.y = element_text(size = 12, face = "plain", angle = 0, vjust = 0.5),
+    plot.margin = margin(t = 0, r = 10, b = 10, l = 10)
+  )
+
+# 4. Combine
+final_plot <- plot_main / plot_table + plot_layout(heights = c(10, 1))
+final_plot
+```
+
+### LOS Index X Unit Count (no elective)
+```{r los index no surgery, message=FALSE}
+# remove outliers
+no_outliers <- encounter_unit_switch %>%
+  filter(UNIT_COUNT <= 10,
+         LOS_INDEX <= 10,
+         ADMIT_TYPE_DESC_SRC != "ELECTIVE") %>%
   mutate(UNIT_COUNT_F = factor(UNIT_COUNT, levels = 1:10, ordered = TRUE)) %>%
   arrange(UNIT_COUNT_F)
 

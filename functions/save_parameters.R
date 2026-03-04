@@ -1,5 +1,4 @@
-save_parameters <- function(generator = "") {
-  
+save_parameters <- function(generator = "", wb = wb) {
   # check if sim was a location swap
   if (generator == "location_swap") {
     parameters <- data.frame(

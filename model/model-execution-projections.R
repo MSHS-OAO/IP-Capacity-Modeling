@@ -46,6 +46,9 @@ source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
 source("functions/volume_projections.R")
+source("functions/dow_service_group.R")
+source("functions/dow_unit.R")
+source("functions/excel_add_to_wb_dow.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -70,7 +73,8 @@ num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 
 # run code for IP_Utilization
 utilizations <- list()
-
+dow_unit_outputs <- list()
+dow_sg_outputs   <- list()
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 results <- ip_utilization_model()
 
@@ -79,8 +83,20 @@ ip_utilization_output = results$ip_utilization_output
 ip_comparison_total = results$ip_comparison_total
 ip_comparison_monthly = results$ip_comparison_monthly
 ip_comparison_daily = results$ip_comparison_daily
+ip_comparison_dow_service_group     = results$ip_comparison_dow_service_group
+ip_comparison_dow_unit     = results$ip_comparison_dow_unit
 
-utilizations[["MSHS IP Utilization"]] <- ip_utilization_output
+
+#cleanup NA values using na_cleanup function
+ip_utilization_output <- na_cleanup(ip_utilization_output)
+ip_comparison_dow_service_group <- na_cleanup(ip_comparison_dow_service_group)
+
+
+list_name <- "MSHS IP Utilization"
+
+utilizations[[list_name]]   <- ip_utilization_output
+dow_unit_outputs[[list_name]] <- ip_comparison_dow_unit
+dow_sg_outputs[[list_name]]   <- ip_comparison_dow_service_group
 
 render(input = "model/model-visualizations.Rmd",
        output_file = paste0(cap_dir, "Model Outputs/Visualizations/",
@@ -91,7 +107,7 @@ render(input = "model/model-visualizations.Rmd",
 wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
-save_parameters()
+save_parameters(wb = wb)
 
 add_to_wb(df = utilizations[["MSHS IP Utilization"]],
           sheetname = "MSHS IP Utilization")
@@ -100,3 +116,32 @@ saveWorkbook(wb,
              file = paste0(cap_dir, "Model Outputs/Workbooks/",
                            "MSHS_IP Utilization_", Sys.Date(), ".xlsx"),
              overwrite = TRUE)
+
+
+# -------------------------------------------------------- Save DOW Workbook ----------------------------------------------------------------
+
+# create excel workbook for DOW outputs
+wb_dow <- createWorkbook()
+
+save_parameters(wb = wb_dow)
+
+
+# store SG sheet first, then UNIT sheet (per scenario key)
+for (i in seq_along(dow_sg_outputs)) {
+  
+  base_name <- names(dow_sg_outputs)[i]
+  
+  sheet_sg   <- paste0(base_name, " - SG")
+  sheet_unit <- paste0(base_name, " - UNIT")
+  
+  add_to_wb_dow(df = dow_sg_outputs[[i]],   sheetname = sheet_sg)
+  add_to_wb_dow(df = dow_unit_outputs[[i]], sheetname = sheet_unit)
+}
+
+# save workbook
+saveWorkbook(
+  wb_dow,
+  file = paste0(cap_dir, "Model Outputs/Workbooks/",
+                "DOW_MSHS_IP_Utilization", Sys.Date(), ".xlsx"),
+  overwrite = TRUE
+)

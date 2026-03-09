@@ -29,7 +29,7 @@ add_to_wb <- function(df, sheetname) {
             sheetname,
             x = "Projections",
             startRow = 1,
-            startCol = 7)
+            startCol = 8)
   mergeCells(wb, sheetname, rows = 1, cols = 8:12)
 
   # Metric row -----------------------------------------------------------------

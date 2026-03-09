@@ -50,6 +50,7 @@ BEGIN
               c.PROV_NAME as MD_PROV_NM,
               c.STARTINSTANT as ATTEND_FROM_DTTM,
               c.ATTEND_TO_DTTM,
+              c.SERVICE_TEAM,
               p.PROV_TYPE,
               p.VERITY_DEPT_1_CD_SRC,
               p.VERITY_DEPT_1_DESC_SRC,

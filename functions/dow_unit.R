@@ -12,163 +12,48 @@ ip_comparison_dow_unit_generator <- function(datasets_processed, unit_capacity_a
   
   dow_order <- c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
   
-  # baseline date window (kept, and now actually usable)
-  date_min <- min(datasets_processed$baseline$SERVICE_DATE, na.rm = TRUE)
-  date_max <- max(datasets_processed$baseline$SERVICE_DATE, na.rm = TRUE)
-  
-  # Epic mapping table (collect once) 
-  epic_mapping <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
-    collect() %>%
-    mutate(
-      VALID_TO   = if_else(is.na(VALID_TO), Sys.Date(), VALID_TO),
-      VALID_FROM = as.Date(VALID_FROM),
-      VALID_TO   = as.Date(VALID_TO)
-    )
-  
-  epic_map2 <- epic_mapping %>%
-    rename(
-      EXTERNAL_NAME_MAP = EXTERNAL_NAME,
-      SERVICE_GROUP_MAP = SERVICE_GROUP
-    ) %>%
-    group_by(EXTERNAL_NAME_MAP, SERVICE_GROUP_MAP, VALID_FROM, VALID_TO) %>%
-    slice(1) %>%
-    ungroup()
-  
-  # 2) Bed capacity
-  bed_cap_unit <- read_csv(
-    file.path(cap_dir, "Tableau Data/Detail_data.csv"),
-    show_col_types = FALSE,
-    col_select = c(
-      Location,
-      `Service Group`,
-      Unit,
-      `Day of Census Day`,
-      `Count of Custom SQL Query`
-    )
-  ) %>%
-    rename(
-      HOSPITAL      = Location,
-      SERVICE_GROUP = `Service Group`,
-      EXTERNAL_NAME = Unit
-    ) %>%
-    mutate(SERVICE_DATE = mdy(`Day of Census Day`)) %>%
-    group_by(HOSPITAL, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE) %>%
-    summarise(
-      DATASET      = "BASELINE",
-      BED_CAPACITY = sum(`Count of Custom SQL Query`, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    mutate(
-      BED_CAPACITY = case_when(
-        EXTERNAL_NAME == "MSH KP2 L&D" ~ 20,
-        TRUE ~ BED_CAPACITY
-      )
-    ) %>%
-    # OPTIONAL: uncomment if you want to restrict capacity to baseline window
-    # filter(SERVICE_DATE >= date_min, SERVICE_DATE <= date_max) %>%
-    left_join(
-      epic_map2,
-      by = join_by(
-        EXTERNAL_NAME == EXTERNAL_NAME_MAP,
-        SERVICE_GROUP == SERVICE_GROUP_MAP,
-        SERVICE_DATE  >= VALID_FROM,
-        SERVICE_DATE  <= VALID_TO
-      )
-    ) %>%
-    mutate(
-      LOC_NAME = na_if(trimws(LOC_NAME), ""),
-      .loc_missing = is.na(LOC_NAME),
-      
-      LOC_NAME = if_else(
-        .loc_missing & !is.na(EXTERNAL_NAME),
-        sub("^\\s*(\\S+)\\s+.*$", "\\1", EXTERNAL_NAME),
-        LOC_NAME
-      ),
-      EXTERNAL_NAME = if_else(
-        .loc_missing & !is.na(EXTERNAL_NAME),
-        sub("^\\s*\\S+\\s+", "", EXTERNAL_NAME),
-        EXTERNAL_NAME
-      )
-    ) %>%
-    select(-.loc_missing) %>%
-    mutate(
-      LOC_NAME = case_when(
-        LOC_NAME == "MOUNT SINAI BETH ISRAEL"   ~ "MSBI",
-        LOC_NAME == "MOUNT SINAI BROOKLYN"     ~ "MSB",
-        LOC_NAME == "MOUNT SINAI MORNINGSIDE"  ~ "MSM",
-        LOC_NAME == "MOUNT SINAI QUEENS"       ~ "MSQ",
-        LOC_NAME == "MOUNT SINAI WEST"         ~ "MSW",
-        LOC_NAME == "THE MOUNT SINAI HOSPITAL" ~ "MSH",
-        TRUE ~ LOC_NAME
-      )
-    ) %>%
-    select(SERVICE_DATE, LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, EPIC_DEPT_ID, BED_CAPACITY, DATASET)
-  
-  bed_cap_unit <- bind_rows(
-    bed_cap_unit,
-    mutate(bed_cap_unit, DATASET = "SCENARIO")
+  bed_cap_unit_wide <- unit_capacity(
+    unit_capacity_adjustments = unit_capacity_adjustments,
+    level = "EXTERNAL_NAME"
   )
+
+  daily_demand_unit <- bind_rows(daily_demand_generator(datasets_processed, level = "EXTERNAL_NAME"))
   
-  if (!is.null(unit_capacity_adjustments)) {
-    
-    scenario_capacity <- read_csv(
-      file.path(cap_dir, "Mapping Info/unit capacity", unit_capacity_adjustments),
-      show_col_types = FALSE
-    )
-    
-    unique_days <- sort(unique(bed_cap_unit$SERVICE_DATE))
-    unique_id   <- unique(scenario_capacity$EPIC_DEPT_ID)
-    
-    scenario_capacity <- tidyr::expand_grid(
-      SERVICE_DATE = unique_days,
-      scenario_capacity
-    ) %>%
-      mutate(DATASET = "SCENARIO")
-    
-    bed_cap_unit <- bed_cap_unit %>%
-      filter(!(DATASET == "SCENARIO" & EPIC_DEPT_ID %in% unique_id)) %>%
-      bind_rows(scenario_capacity)
-  }
+  # assign(
+  #   "daily_demand_unit",
+  #   bind_rows(daily_demand_generator(datasets_processed, level = "EXTERNAL_NAME")),
+  #   envir = .GlobalEnv
+  # )
   
-  bed_cap_unit_wide <- bed_cap_unit %>%
-    group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE, DATASET) %>%
-    summarise(BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE), .groups = "drop") %>%
-    pivot_wider(
-      id_cols = c(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_DATE),
-      names_from = DATASET,
-      values_from = BED_CAPACITY,
-      names_repair = "check_unique"
-    )
   
-  # unit daily demand from baseline/scenario
-  daily_demand_unit <- lapply(names(datasets_processed), function(dataset) {
-    
-    df <- datasets_processed[[dataset]]
-    
-    df <- df %>%
-      filter(!is.na(EXTERNAL_NAME)) %>%
-      group_by(
-        ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
-        DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH,
-        SERVICE_DATE, LOS_NO_SRC
-      ) %>%
-      summarise(BED_CHARGES = sum(QUANTITY, na.rm = TRUE), .groups = "drop") %>%
-      mutate(BED_CHARGES = if_else(BED_CHARGES > 1, 1, BED_CHARGES))
-    
-    if (dataset == "scenario" && exists("vol_projections_file") && !is.null(vol_projections_file)) {
-      df <- volume_projections(df, vol_projections_file)
-    }
-    if (dataset == "scenario" && exists("los_projections_file") && !is.null(los_projections_file)) {
-      df <- los_reduction_sim(df)
-    }
-    
-    df %>%
-      group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, SERVICE_DATE) %>%
-      summarise(DAILY_DEMAND = sum(BED_CHARGES, na.rm = TRUE), .groups = "drop") %>%
-      mutate(PERIOD = toupper(dataset))
-  })
+  # # unit daily demand from baseline/scenario
+  # daily_demand_unit <- lapply(names(datasets_processed), function(dataset) {
+  #   
+  #   df <- datasets_processed[[dataset]]
+  #   
+  #   df <- df %>%
+  #     filter(!is.na(EXTERNAL_NAME)) %>%
+  #     group_by(
+  #       ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
+  #       DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH,
+  #       SERVICE_DATE, LOS_NO_SRC
+  #     ) %>%
+  #     summarise(BED_CHARGES = sum(QUANTITY, na.rm = TRUE), .groups = "drop") %>%
+  #     mutate(BED_CHARGES = if_else(BED_CHARGES > 1, 1, BED_CHARGES))
+  #   
+  #   if (dataset == "scenario" && exists("vol_projections_file") && !is.null(vol_projections_file)) {
+  #     df <- volume_projections(df, vol_projections_file)
+  #   }
+  #   if (dataset == "scenario" && exists("los_projections_file") && !is.null(los_projections_file)) {
+  #     df <- los_reduction_sim(df)
+  #   }
+  #   
+  #   df %>%
+  #     group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, SERVICE_MONTH, SERVICE_DATE) %>%
+  #     summarise(DAILY_DEMAND = sum(BED_CHARGES, na.rm = TRUE), .groups = "drop") %>%
+  #     mutate(PERIOD = toupper(dataset))
+  # })
   
-  daily_demand_unit <- bind_rows(daily_demand_unit)
   
   # join capacity + compute utilization
   util_df <- daily_demand_unit %>%

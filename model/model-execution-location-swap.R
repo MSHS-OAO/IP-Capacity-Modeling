@@ -75,6 +75,7 @@ source("functions/dow_service_group.R")
 source("functions/dow_unit.R")
 source("functions/excel_add_to_wb_dow.R")
 source("functions/NA_cleanup.R")
+source("functions/daily_demand_generator.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -197,8 +198,8 @@ for (i in 1:length(utilizations)) {
 
 saveWorkbook(wb, 
                file = paste0(cap_dir, "Model Outputs/Workbooks/",
-                             hospitals[[1]], services[[1]], "-",
-                             hospitals[[2]], services[[2]],"_",
+                             hospitals[[1]],"_", services[[1]], "-",
+                             hospitals[[2]],"_", services[[2]],"_",
                              Sys.Date(), ".xlsx"),
                overwrite = TRUE )
 
@@ -225,8 +226,8 @@ for (i in seq_along(dow_unit_outputs)) {
 saveWorkbook(
   wb_dow,
   file = paste0(cap_dir, "Model Outputs/Workbooks/DOW_",
-                hospitals[[1]], services[[1]], "-",
-                hospitals[[2]], services[[2]], "_",
+                hospitals[[1]],"_", services[[1]], "-",
+                hospitals[[2]],"_", services[[2]], "_",
                 Sys.Date(), ".xlsx"),
   overwrite = TRUE
 )

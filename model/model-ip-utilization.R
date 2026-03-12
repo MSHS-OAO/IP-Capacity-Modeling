@@ -8,7 +8,8 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
     print(paste("Running simulation #", i))
     
     # load bed capacity for baseline and scenario
-    bed_cap <- unit_capacity(unit_capacity_adjustments)
+    bed_cap <- unit_capacity( unit_capacity_adjustments = unit_capacity_adjustments,
+                                 level = "SERVICE_GROUP")
     
     # read in processed data from data refresh script
     if (generator == "location_swap"){
@@ -22,45 +23,20 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
         "scenario" = baseline)
     }
 
-    # adjust scenario demand based on volume and LOS projections
-    daily_demand <- lapply(names(datasets_processed), function(dataset) {
-      
-      # load dataset based on name of list element
-      df <- datasets_processed[[dataset]]
-      
-      # get daily demand by service line and service group
-      df <- df %>%
-        #filter(!is.na(EXTERNAL_NAME)) %>%
-        group_by(ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, 
-                 DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH, 
-                 SERVICE_DATE, LOS_NO_SRC) %>%
-        summarise(BED_CHARGES = sum(QUANTITY), .groups = "drop") %>%
-        mutate(BED_CHARGES = case_when(
-          BED_CHARGES > 1 ~ 1,
-          TRUE ~ BED_CHARGES)) 
-      
-      #execute volume projections
-      if (dataset == "scenario" & !is.null(vol_projections_file)) {
-        
-      df <- volume_projections(df, vol_projections_file)
-
-      } else {
-           df <- df
-         }
-      
-      # project changes in LOS
-      if(dataset == "scenario" & !is.null(los_projections_file)) {
-        df <- los_reduction_sim(df)
-      } else {
-        df <- df
-      }
-      
-      # get total daily volume for each service line and unit type
-      df <- df %>%
-        group_by(LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
-        summarise(DAILY_DEMAND = sum(BED_CHARGES), .groups = "drop")
-
-    })
+    #call daily_demand_generator function
+    daily_demand <- daily_demand_generator(
+      datasets_processed,
+      level = "SERVICE_GROUP"
+    )
+    
+    
+    # assign(
+    #   "daily_demand",
+    #   daily_demand_generator(datasets_processed, level = "SERVICE_GROUP"),
+    #   envir = .GlobalEnv
+    # )
+    
+    
     names(daily_demand) <- names(datasets_processed)
     
     # compute daily average utilization and days over 85 and 95 %

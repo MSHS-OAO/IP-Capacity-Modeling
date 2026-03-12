@@ -38,6 +38,28 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
     )
   )
 
+#pool NA SERVICE_GROUP vals as "Other"
+baseline <- baseline %>%
+  mutate(
+    SERVICE_GROUP = if_else(
+      is.na(SERVICE_GROUP),
+      "Other",
+      SERVICE_GROUP
+    )
+  )
+
+baseline <- baseline %>%
+  mutate(
+    LOC_NAME = case_when(
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSH" ~ "MSH",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSQ" ~ "MSQ",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIP" ~ "MSBI",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIB" ~ "MSB",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "STL" ~ "MSM",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "RVT" ~ "MSW",
+      TRUE ~ LOC_NAME
+    )
+  )
 #  ---------------------------------------------------------------- Render Models ----------------------------------------------------------------
 
 # load all functions
@@ -49,6 +71,7 @@ source("functions/volume_projections.R")
 source("functions/dow_service_group.R")
 source("functions/dow_unit.R")
 source("functions/excel_add_to_wb_dow.R")
+source("functions/NA_cleanup.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")

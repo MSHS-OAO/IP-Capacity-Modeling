@@ -1,4 +1,4 @@
-unit_capacity <- function(unit_capacity_adjustments = NULL) {
+unit_capacity <- function(unit_capacity_adjustments = NULL, level) {
   
   # load mapping file for all Epic IDs
   epic_mapping <- tbl(con_prod, "IPCAP_SERVICE_GROUPS") %>%
@@ -22,10 +22,7 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
     mutate(
       BED_CAPACITY = case_when(
         BED_CAPACITY > 1 ~ 1,
-        TRUE ~ BED_CAPACITY),
-        BED_CAPACITY = case_when(
-      EXTERNAL_NAME == "MSH KP2 L&D" ~ 20, # hard code bed cap based on Victoria's input
-      TRUE ~ BED_CAPACITY)) %>%
+        TRUE ~ BED_CAPACITY)) %>%
     filter(HOSPITAL != "MOUNT SINAI BETH ISRAEL",
            HOSPITAL != "MOUNT SINAI SOUTH NASSAU",
            SERVICE_DATE >= min(baseline$SERVICE_DATE),
@@ -42,8 +39,11 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
         LOC_NAME == "MOUNT SINAI QUEENS" ~ "MSQ",
         LOC_NAME == "MOUNT SINAI WEST" ~ "MSW",
         LOC_NAME == "THE MOUNT SINAI HOSPITAL" ~ "MSH")) %>%
-    ungroup() %>%
-    select(SERVICE_DATE, LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, EPIC_DEPT_ID, BED_CAPACITY, DATASET)
+    group_by(SERVICE_DATE, EPIC_DEPT_ID, LOC_NAME, EXTERNAL_NAME, SERVICE_GROUP, DATASET) %>%
+    summarise(BED_CAPACITY = sum(BED_CAPACITY)) %>%
+    mutate(BED_CAPACITY = case_when(
+      EXTERNAL_NAME == 'MSH KP2 L&D' ~ 20,
+      TRUE ~ BED_CAPACITY))
   
   # create duplicate df for scenario and bind it to the basline bed cap
   bed_cap_scenario <- bed_cap %>% mutate(DATASET = "SCENARIO")
@@ -70,13 +70,21 @@ unit_capacity <- function(unit_capacity_adjustments = NULL) {
       filter(!(EPIC_DEPT_ID %in% unique_id & DATASET == "SCENARIO")) %>%
       rbind(scenario_capacity)
   }
-  
-  bed_cap <- bed_cap %>%
-    group_by(LOC_NAME, SERVICE_GROUP, SERVICE_DATE, DATASET) %>%
-    summarise(BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE)) %>%
-    pivot_wider(id_cols = c(LOC_NAME, SERVICE_GROUP, SERVICE_DATE),
-                names_from = DATASET,
-                values_from = BED_CAPACITY)
+  if(level == "unit") {
+    bed_cap <- bed_cap %>%
+      group_by(LOC_NAME, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_DATE, DATASET) %>%
+      summarise(BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE)) %>%
+      pivot_wider(id_cols = c(LOC_NAME, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_DATE),
+                  names_from = DATASET,
+                  values_from = BED_CAPACITY)
+  } else if (level == "service_group") {
+    bed_cap <- bed_cap %>%
+      group_by(LOC_NAME, SERVICE_GROUP, SERVICE_DATE, DATASET) %>%
+      summarise(BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE)) %>%
+      pivot_wider(id_cols = c(LOC_NAME, SERVICE_GROUP, SERVICE_DATE),
+                  names_from = DATASET,
+                  values_from = BED_CAPACITY)
+  }
   
   return(bed_cap) 
 }

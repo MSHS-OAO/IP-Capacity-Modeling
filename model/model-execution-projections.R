@@ -34,9 +34,13 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
       LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
       LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
-      TRUE ~ LOC_NAME
-    )
-  )
+      TRUE ~ LOC_NAME),
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == "BIB" ~ "MSB",
+      FACILITY_MSX == "BIP" ~ "MSBI",
+      FACILITY_MSX == "RVT" ~ "MSW",
+      FACILITY_MSX == "STL" ~ "MSM",
+      TRUE ~ FACILITY_MSX))
 
 #  ---------------------------------------------------------------- Render Models ----------------------------------------------------------------
 
@@ -46,6 +50,8 @@ source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
 source("functions/volume_projections.R")
+source("functions/daily_demand.R")
+source("functions/ip_utilization.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -59,14 +65,7 @@ unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 vol_projections_file <- "2026_budget_volume.csv"
 
 # file with los adjustments
-los_projections_file <- "los_adjustments_2025Q4.csv"
-
-# calculate # of weekdays and # of all days in dataset
-num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
-                                min(baseline$SERVICE_DATE), 
-                                units = "days")) + 1
-weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
-num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
+los_projections_file <- "los_adjustments_2027Q4.csv"
 
 # run code for IP_Utilization
 utilizations <- list()
@@ -77,7 +76,6 @@ results <- ip_utilization_model()
 # Unpack values from IP result list
 ip_utilization_output = results$ip_utilization_output
 ip_comparison_total = results$ip_comparison_total
-ip_comparison_monthly = results$ip_comparison_monthly
 ip_comparison_daily = results$ip_comparison_daily
 
 utilizations[["MSHS IP Utilization"]] <- ip_utilization_output

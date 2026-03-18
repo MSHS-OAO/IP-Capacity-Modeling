@@ -23,19 +23,12 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
         "scenario" = baseline)
     }
 
-    #call daily_demand_generator function
-    daily_demand <- daily_demand_generator(
+    #call daily_demand function
+    daily_demand <- daily_demand(
       datasets_processed,
       level = "SERVICE_GROUP"
     )
-    
-    
-    # assign(
-    #   "daily_demand",
-    #   daily_demand_generator(datasets_processed, level = "SERVICE_GROUP"),
-    #   envir = .GlobalEnv
-    # )
-    
+
     
     names(daily_demand) <- names(datasets_processed)
     
@@ -116,7 +109,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
                 AVG_SD_SCENARIO = sd(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
-    
+
     # aggregate comparison at total level
     ip_comparison_total <- ip_comparison_daily %>%
       group_by(LOC_NAME, SERVICE_GROUP) %>% 
@@ -169,8 +162,8 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       relocate(AVG_WEEKDAY_UTILIZATION_SCENARIO, .after = AVG_UTILIZATION_SCENARIO)
     
     
-    ip_comparison_dow_service_group <- ip_comparison_dow_service_group_generator(ip_comparison_daily)
-    ip_comparison_dow_unit <- ip_comparison_dow_unit_generator(datasets_processed, unit_capacity_adjustments)
+    ip_comparison_dow_service_group <- ip_comparison_dow_service_group_function(ip_comparison_daily)
+    ip_comparison_dow_unit <- ip_comparison_dow_unit_function(datasets_processed, unit_capacity_adjustments)
     # omitting shut down units (bed capacity = 0 in Tisch capacity projections)
     ip_comparison_dow_unit <- na.omit(ip_comparison_dow_unit)
     return(list(
@@ -207,15 +200,15 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
     group_by(LOC_NAME, SERVICE_GROUP, SERVICE_MONTH,
              AVG_BED_CAPACITY_BASELINE, AVG_BED_CAPACITY_SCENARIO) %>%
     summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
-  
-  # --- 3. ip_comparison_total ---
+
+  # --- 4. ip_comparison_total ---
   ip_comparison_total <- outputs_list %>%
     map("ip_comparison_total") %>%
     list_rbind() %>%
     group_by(LOC_NAME, SERVICE_GROUP) %>%
     summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
   
-  # --- 4. ip_comparison_dow_service_group
+  # --- 5. ip_comparison_dow_service_group
   ip_comparison_dow_service_group <- outputs_list %>%
     purrr::map("ip_comparison_dow_service_group") %>%
     dplyr::bind_rows() %>%
@@ -227,7 +220,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       .groups = "drop"
     )
 
-  #--- 5. ip_comparison_dow_unit
+  #--- 6. ip_comparison_dow_unit
   ip_comparison_dow_unit <- outputs_list %>%
     purrr::map("ip_comparison_dow_unit") %>%
     dplyr::bind_rows() %>%

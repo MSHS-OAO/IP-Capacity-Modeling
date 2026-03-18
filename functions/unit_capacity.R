@@ -147,7 +147,6 @@ unit_capacity <- function(unit_capacity_adjustments = NULL,
       )
   }
   
-  #else if (level == "ENCOUNTER") FOR DHEERAJ
-  
+
   return(bed_cap)
 }

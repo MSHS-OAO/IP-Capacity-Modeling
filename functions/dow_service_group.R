@@ -1,7 +1,7 @@
 library(dplyr)
 library(tidyr)
 
-ip_comparison_dow_service_group_generator <- function(ip_comparison_daily) {
+ip_comparison_dow_service_group_function <- function(ip_comparison_daily) {
   
   dow_order <- c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
   
@@ -18,16 +18,27 @@ ip_comparison_dow_service_group_generator <- function(ip_comparison_daily) {
         AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
         .groups = "drop"
       )
+
     
     util_long <- df %>%
-      select(LOC_NAME, SERVICE_GROUP, SERVICE_DATE, DAY_OF_WEEK,
-             UTILIZATION_BASELINE, UTILIZATION_SCENARIO) %>%
+      select(
+        LOC_NAME, SERVICE_GROUP, SERVICE_DATE, DAY_OF_WEEK,
+        UTILIZATION_BASELINE, UTILIZATION_SCENARIO
+      ) %>%
       pivot_longer(
         cols = starts_with("UTILIZATION_"),
-        names_to = "PERIOD",
-        values_to = "UTILIZATION",
-        names_pattern = "UTILIZATION_(BASELINE|SCENARIO)"
-      )
+        names_to = "metric",
+        values_to = "UTILIZATION"
+      ) %>%
+      mutate(
+        PERIOD = case_when(
+          metric == "UTILIZATION_BASELINE" ~ "BASELINE",
+          metric == "UTILIZATION_SCENARIO" ~ "SCENARIO",
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      select(-metric)
+    
     
     overall <- util_long %>%
       group_by(LOC_NAME, SERVICE_GROUP, PERIOD) %>%

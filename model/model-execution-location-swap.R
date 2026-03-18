@@ -75,7 +75,7 @@ source("functions/dow_service_group.R")
 source("functions/dow_unit.R")
 source("functions/excel_add_to_wb_dow.R")
 source("functions/NA_cleanup.R")
-source("functions/daily_demand_generator.R")
+source("functions/daily_demand.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")

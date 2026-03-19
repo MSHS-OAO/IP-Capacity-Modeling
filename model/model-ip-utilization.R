@@ -1,5 +1,7 @@
-ip_utilization_model <- function(generator = "", n_simulations = 1) 
-{
+ip_utilization_model <- function(generator = "", n_simulations = 1, level = "service_group") {
+  
+  # load bed capacity for baseline and scenario
+  bed_cap <- unit_capacity(unit_capacity_adjustments, level = level)
   
   # loop through each iteration
   outputs_list <- lapply(1:n_simulations, function(i) {
@@ -128,24 +130,9 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
       mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO))
     
-    # aggregate weekday comparison at total level
-    ip_comparison_weekday_total <- ip_comparison_weekday %>%
-      group_by(LOC_NAME, SERVICE_GROUP) %>% 
-      summarise(AVG_BED_CAPACITY_BASELINE = mean(AVG_BED_CAPACITY_BASELINE, na.rm = TRUE),
-                AVG_BED_CAPACITY_SCENARIO = mean(AVG_BED_CAPACITY_SCENARIO, na.rm = TRUE),
-                AVG_DAILY_DEMAND_BASELINE = mean(DAILY_DEMAND_BASELINE, na.rm = TRUE),
-                AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
-                AVG_PERCENT_85_BASELINE = mean(UTILIZATION_85_BASELINE, na.rm = TRUE),
-                AVG_PERCENT_85_SCENARIO = mean(UTILIZATION_85_SCENARIO, na.rm = TRUE),
-                AVG_PERCENT_95_BASELINE = mean(UTILIZATION_95_BASELINE, na.rm = TRUE),
-                AVG_PERCENT_95_SCENARIO = mean(UTILIZATION_95_SCENARIO, na.rm = TRUE),
-                AVG_UTILIZATION_BASELINE = mean(UTILIZATION_BASELINE, na.rm = TRUE),
-                AVG_UTILIZATION_SCENARIO = mean(UTILIZATION_SCENARIO, na.rm = TRUE)) %>%
-      mutate(across(where(is.numeric), \(x) coalesce(x, 0))) %>%
-      mutate(AVG_UTILIZATION_SCENARIO = if_else(AVG_UTILIZATION_SCENARIO == 0, Inf, AVG_UTILIZATION_SCENARIO)) %>%
-      rename(AVG_WEEKDAY_UTILIZATION_BASELINE = AVG_UTILIZATION_BASELINE,
-             AVG_WEEKDAY_UTILIZATION_SCENARIO = AVG_UTILIZATION_SCENARIO) %>%
-      select(LOC_NAME, SERVICE_GROUP, AVG_WEEKDAY_UTILIZATION_BASELINE, AVG_WEEKDAY_UTILIZATION_SCENARIO)
+    # create daily demand list at desired level all scenario modifiers are applied here
+    daily_demand_list <- lapply(names(datasets_processed), daily_demand, df = datasets_processed, level = level)
+    names(daily_demand_list) <- names(datasets_processed)
     
     # IP Utilization Output
     ip_utilization_output <- ip_comparison_total %>%
@@ -175,16 +162,14 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
       ,ip_comparison_dow_unit=ip_comparison_dow_unit
     ))
     
-  })
-  
-  # --- 1. ip_utilization_output ---
+  # --- ip_utilization_output ---
   ip_utilization_output <- outputs_list %>%
     map("ip_utilization_output") %>%
     list_rbind() %>%
     group_by(LOC_NAME, SERVICE_GROUP) %>%
     summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
   
-  # --- 2. ip_comparison_daily ---
+  # --- ip_comparison_daily ---
   ip_comparison_daily <- outputs_list %>%
     map("ip_comparison_daily") %>%
     list_rbind() %>%

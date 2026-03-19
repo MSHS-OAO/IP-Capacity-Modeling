@@ -42,6 +42,28 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       FACILITY_MSX == "STL" ~ "MSM",
       TRUE ~ FACILITY_MSX))
 
+#pool NA SERVICE_GROUP vals as "Other"
+baseline <- baseline %>%
+  mutate(
+    SERVICE_GROUP = if_else(
+      is.na(SERVICE_GROUP),
+      "Other",
+      SERVICE_GROUP
+    )
+  )
+
+baseline <- baseline %>%
+  mutate(
+    LOC_NAME = case_when(
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSH" ~ "MSH",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSQ" ~ "MSQ",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIP" ~ "MSBI",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIB" ~ "MSB",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "STL" ~ "MSM",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "RVT" ~ "MSW",
+      TRUE ~ LOC_NAME
+    )
+  )
 #  ---------------------------------------------------------------- Render Models ----------------------------------------------------------------
 
 # load all functions
@@ -50,8 +72,11 @@ source("functions/unit_capacity.R")
 source("functions/excel_add_to_wb.R")
 source("functions/save_parameters.R")
 source("functions/volume_projections.R")
+source("functions/dow_service_group.R")
+source("functions/dow_unit.R")
+source("functions/excel_add_to_wb_dow.R")
+source("functions/NA_cleanup.R")
 source("functions/daily_demand.R")
-source("functions/ip_utilization.R")
 
 # execute ip utiliziation script
 source("model/model-ip-utilization.R")
@@ -69,7 +94,8 @@ los_projections_file <- "los_adjustments_2027Q4.csv"
 
 # run code for IP_Utilization
 utilizations <- list()
-
+dow_unit_outputs <- list()
+dow_sg_outputs   <- list()
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 results <- ip_utilization_model()
 
@@ -77,8 +103,20 @@ results <- ip_utilization_model()
 ip_utilization_output = results$ip_utilization_output
 ip_comparison_total = results$ip_comparison_total
 ip_comparison_daily = results$ip_comparison_daily
+ip_comparison_dow_service_group     = results$ip_comparison_dow_service_group
+ip_comparison_dow_unit     = results$ip_comparison_dow_unit
 
-utilizations[["MSHS IP Utilization"]] <- ip_utilization_output
+
+#cleanup NA values using na_cleanup function
+ip_utilization_output <- na_cleanup(ip_utilization_output)
+ip_comparison_dow_service_group <- na_cleanup(ip_comparison_dow_service_group)
+
+
+list_name <- "MSHS IP Utilization"
+
+utilizations[[list_name]]   <- ip_utilization_output
+dow_unit_outputs[[list_name]] <- ip_comparison_dow_unit
+dow_sg_outputs[[list_name]]   <- ip_comparison_dow_service_group
 
 render(input = "model/model-visualizations.Rmd",
        output_file = paste0(cap_dir, "Model Outputs/Visualizations/",
@@ -89,7 +127,7 @@ render(input = "model/model-visualizations.Rmd",
 wb <- createWorkbook()
 
 # save parameters and unit capacity changes as necessary
-save_parameters()
+save_parameters(wb = wb)
 
 add_to_wb(df = utilizations[["MSHS IP Utilization"]],
           sheetname = "MSHS IP Utilization")
@@ -98,3 +136,32 @@ saveWorkbook(wb,
              file = paste0(cap_dir, "Model Outputs/Workbooks/",
                            "MSHS_IP Utilization_", Sys.Date(), ".xlsx"),
              overwrite = TRUE)
+
+
+# -------------------------------------------------------- Save DOW Workbook ----------------------------------------------------------------
+
+# create excel workbook for DOW outputs
+wb_dow <- createWorkbook()
+
+save_parameters(wb = wb_dow)
+
+
+# store SG sheet first, then UNIT sheet (per scenario key)
+for (i in seq_along(dow_sg_outputs)) {
+  
+  base_name <- names(dow_sg_outputs)[i]
+  
+  sheet_sg   <- paste0(base_name, " - SG")
+  sheet_unit <- paste0(base_name, " - UNIT")
+  
+  add_to_wb_dow(df = dow_sg_outputs[[i]],   sheetname = sheet_sg)
+  add_to_wb_dow(df = dow_unit_outputs[[i]], sheetname = sheet_unit)
+}
+
+# save workbook
+saveWorkbook(
+  wb_dow,
+  file = paste0(cap_dir, "Model Outputs/Workbooks/",
+                "DOW_MSHS_IP_Utilization", Sys.Date(), ".xlsx"),
+  overwrite = TRUE
+)

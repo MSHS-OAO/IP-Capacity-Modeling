@@ -125,11 +125,10 @@ save_parameters <- function(generator = "", wb = wb) {
     los_projections <- read_csv(paste0(cap_dir, "Mapping Info/los adjustments/", los_projections_file),
                                 show_col_types = FALSE) %>%
       # remove combos with no addressable days or addressable days = 0
-      filter(!is.na(PERCENT_ADDRESSABLE),   
-             PERCENT_ADDRESSABLE != 0) %>%
+      filter(!is.na(TARGET_LOS)) %>%
       rename(HOSPITAL = Hospital) %>%
-      select(HOSPITAL, EXTERNAL_NAME, VERITY_REPORT_SERVICE_MSX, PERCENT_ADDRESSABLE, TARGET_LOS) %>%
-      arrange(HOSPITAL, EXTERNAL_NAME, VERITY_REPORT_SERVICE_MSX)
+      select(HOSPITAL, VERITY_REPORT_SERVICE_MSX, TARGET_LOS) %>%
+      arrange(HOSPITAL, VERITY_REPORT_SERVICE_MSX)
       
     # sheetname
     sheetname <- "LOS Projections"

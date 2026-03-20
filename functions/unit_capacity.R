@@ -63,16 +63,18 @@ unit_capacity <- function(unit_capacity_adjustments = NULL,
         TRUE ~ LOC_NAME
       )
     ) %>%
-    ungroup() %>%
-    select(
+    group_by(
       SERVICE_DATE,
       LOC_NAME,
       SERVICE_GROUP,
       EXTERNAL_NAME,
       EPIC_DEPT_ID,
-      BED_CAPACITY,
       DATASET
-    )
+    ) %>%
+    summarise(BED_CAPACITY = sum(BED_CAPACITY)) %>%
+    mutate(BED_CAPACITY = if_else(EXTERNAL_NAME == "MSH KP2 L&D",
+                                  20,
+                                  BED_CAPACITY))
   
   # create duplicate df for scenario and bind it to the baseline bed cap
   bed_cap_scenario <- bed_cap %>%
@@ -113,13 +115,6 @@ unit_capacity <- function(unit_capacity_adjustments = NULL,
     summarise(
       BED_CAPACITY = sum(BED_CAPACITY, na.rm = TRUE),
       .groups = "drop"
-    ) %>%
-    mutate(
-      BED_CAPACITY = if_else(
-        EXTERNAL_NAME == "MSH KP2 L&D",
-        20,
-        BED_CAPACITY
-      )
     )
   
   # return based on requested level

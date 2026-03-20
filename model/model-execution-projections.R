@@ -102,6 +102,7 @@ results <- ip_utilization_model()
 # Unpack values from IP result list
 ip_utilization_output = results$ip_utilization_output
 ip_comparison_total = results$ip_comparison_total
+ip_comparison_monthly = results$ip_comparison_monthly
 ip_comparison_daily = results$ip_comparison_daily
 ip_comparison_dow_service_group     = results$ip_comparison_dow_service_group
 ip_comparison_dow_unit     = results$ip_comparison_dow_unit

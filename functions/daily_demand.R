@@ -12,7 +12,7 @@ daily_demand <- function(datasets_processed,
     df <- df %>%
       #filter(!is.na(EXTERNAL_NAME)) %>%
       group_by(
-        ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
+        FACILITY_MSX, ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
         DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH,
         SERVICE_DATE, LOS_NO_SRC
       ) %>%

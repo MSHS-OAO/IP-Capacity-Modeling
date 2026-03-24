@@ -1,14 +1,14 @@
 ip_utilization_model <- function(generator = "", n_simulations = 1) {
   
+  # load bed capacity for baseline and scenario
+  bed_cap <- unit_capacity(unit_capacity_adjustments = unit_capacity_adjustments,
+                           level = "SERVICE_GROUP")
+  
   # loop through each iteration
   outputs_list <- lapply(1:n_simulations, function(i) {
     
     
     print(paste("Running simulation #", i))
-    
-    # load bed capacity for baseline and scenario
-    bed_cap <- unit_capacity( unit_capacity_adjustments = unit_capacity_adjustments,
-                              level = "SERVICE_GROUP")
     
     # read in processed data from data refresh script
     if (generator == "location_swap"){

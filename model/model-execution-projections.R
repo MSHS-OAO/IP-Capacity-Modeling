@@ -92,6 +92,12 @@ vol_projections_file <- "2026_budget_volume.csv"
 # file with los adjustments
 los_projections_file <- "los_adjustments_2027Q4.csv"
 
+# calculate # of weekdays and # of all days in dataset
+num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
+                                min(baseline$SERVICE_DATE), 
+                                units = "days")) + 1
+weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
+
 # run code for IP_Utilization
 utilizations <- list()
 dow_unit_outputs <- list()

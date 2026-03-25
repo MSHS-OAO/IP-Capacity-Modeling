@@ -154,7 +154,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
              AVG_PERCENT_85_BASELINE, AVG_BED_CAPACITY_SCENARIO, 
              AVG_DAILY_DEMAND_SCENARIO, AVG_UTILIZATION_SCENARIO, 
              AVG_PERCENT_85_SCENARIO,AVG_SD_BASELINE,AVG_SD_SCENARIO) %>%
-      filter(AVG_DAILY_DEMAND_BASELINE > 1) %>%
+      filter(AVG_DAILY_DEMAND_BASELINE >= 1) %>%
       left_join(ip_comparison_weekday_total,
                 by = c("LOC_NAME" = "LOC_NAME",
                        "SERVICE_GROUP" = "SERVICE_GROUP")) %>%
@@ -208,6 +208,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
     group_by(LOC_NAME, SERVICE_GROUP) %>%
     summarise(across(where(is.numeric), ~mean(.x, na.rm = TRUE)), .groups = "drop")
   
+
   # --- 5. ip_comparison_dow_service_group
   ip_comparison_dow_service_group <- outputs_list %>%
     purrr::map("ip_comparison_dow_service_group") %>%
@@ -215,22 +216,20 @@ ip_utilization_model <- function(generator = "", n_simulations = 1)
     group_by(LOC_NAME, SERVICE_GROUP) %>%
     summarise(
       across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
-      across(any_of(c("DOW_MIN_BASELINE","DOW_MAX_BASELINE","DOW_MIN_SCENARIO","DOW_MAX_SCENARIO")),
-             mode_chr),
       .groups = "drop"
-    )
+    ) %>%
+    add_dow_diff_summary_columns()
 
   #--- 6. ip_comparison_dow_unit
   ip_comparison_dow_unit <- outputs_list %>%
     purrr::map("ip_comparison_dow_unit") %>%
     dplyr::bind_rows() %>%
-    group_by(LOC_NAME, SERVICE_GROUP,EXTERNAL_NAME) %>%
+    group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME) %>%
     summarise(
       across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
-      across(any_of(c("DOW_MIN_BASELINE","DOW_MAX_BASELINE","DOW_MIN_SCENARIO","DOW_MAX_SCENARIO")),
-             mode_chr),
       .groups = "drop"
-    )
+    ) %>%
+    add_dow_diff_summary_columns()
   
   ip_utilization_output <- ip_utilization_output %>%
     left_join(

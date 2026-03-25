@@ -34,9 +34,13 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
       LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
       LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
-      TRUE ~ LOC_NAME
-    )
-  )
+      TRUE ~ LOC_NAME),
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == "BIB" ~ "MSB",
+      FACILITY_MSX == "BIP" ~ "MSBI",
+      FACILITY_MSX == "RVT" ~ "MSW",
+      FACILITY_MSX == "STL" ~ "MSM",
+      TRUE ~ FACILITY_MSX))
 
 #pool NA SERVICE_GROUP vals as "Other"
 baseline <- baseline %>%
@@ -86,14 +90,13 @@ unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 vol_projections_file <- "2026_budget_volume.csv"
 
 # file with los adjustments
-los_projections_file <- "los_adjustments_2025Q4.csv"
+los_projections_file <- "los_adjustments_2027Q4.csv"
 
 # calculate # of weekdays and # of all days in dataset
 num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
                                 min(baseline$SERVICE_DATE), 
                                 units = "days")) + 1
 weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
-num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
 
 # run code for IP_Utilization
 utilizations <- list()

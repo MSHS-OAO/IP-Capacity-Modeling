@@ -22,6 +22,8 @@ library(kableExtra)
 library(patchwork)
 library(scales)
 library(gridExtra)
+library(readr)
+library(hexbin)
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
@@ -46,7 +48,7 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
 
 # LOS for each care team (care team must have a service line) on IP units
 encounter_by_day <- baseline %>%
-  group_by(ENCOUNTER_NO, FACILITY_MSX, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, 
+  group_by(ENCOUNTER_NO, EPIC_CSN, FACILITY_MSX, LOC_NAME, LOS_NO_SRC, VIZ_EX_LOS, ADMIT_DT_SRC, 
            DSCH_DT_SRC, ADMIT_UNIT_DESC_MSX, DSCH_UNIT_DESC_MSX, ADMIT_TYPE_DESC_SRC,
            ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, MSDRG_DESC_MSX, 
            EPIC_DEPT_ID, EPIC_DEPT_NAME, EXTERNAL_NAME, SERVICE_GROUP, 
@@ -70,8 +72,6 @@ encounter_by_day <- baseline %>%
 ### Unit Stays and Patient Identifiers
 ```{r encounter units, message=FALSE}
 
-emergency_ids <- c("8504009", "8502025", "5119226", "8505028", "8503006", "8501001")
-
 # break down each encounters stay into unit stays by number of days
 encounter_unit_stays <- encounter_by_day %>%  
   arrange(ENCOUNTER_NO, SERVICE_DATE) %>%
@@ -84,18 +84,15 @@ encounter_unit_stays <- encounter_by_day %>%
          
     SERVICE_CHANGE = SERVICE_GROUP != lag(SERVICE_GROUP),
     NEW_SERVICE    = is.na(lag(SERVICE_DATE)) | SERVICE_CHANGE | DATE_GAP,
-    SERVICE_ID     = cumsum(NEW_SERVICE),
-    
-    IS_BOARDER = any(EPIC_DEPT_ID %in% emergency_ids) &
-                 !(last(EPIC_DEPT_ID) %in% emergency_ids))
+    SERVICE_ID     = cumsum(NEW_SERVICE))
 ```
 
 ### Unit Switch
 ```{r unit stays, message=FALSE}
 # for each encounter get the total unit switches
 encounter_unit_switch <- encounter_unit_stays %>%
-  group_by(ENCOUNTER_NO, FACILITY_MSX, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
-           MSDRG_DESC_MSX, ADMIT_TYPE_DESC_SRC, IS_BOARDER, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
+  group_by(ENCOUNTER_NO, EPIC_CSN, FACILITY_MSX, ATTENDING_VERITY_DIV_DESC, MSDRG_CD_SRC, 
+           MSDRG_DESC_MSX, ADMIT_TYPE_DESC_SRC, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
   summarise(UNIT_COUNT = max(STAY_ID),
             SERVICE_COUNT = max(SERVICE_ID)) %>%
   mutate(FLAG = UNIT_COUNT > SERVICE_COUNT)
@@ -108,8 +105,9 @@ head(encounter_unit_switch) %>%
 ```
 
 # Visualizations
+## Distributions
 ### Full Population - LOS Distribution
-```{r population visualization}
+```{r population visualization - LOS}
 ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_NO_SRC)) +
   geom_jitter(aes(colour = factor(UNIT_COUNT)),
               width = .2) +
@@ -132,7 +130,7 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_NO_SRC)) +
 ```
 
 ### Full Population - LOS Index Distribution
-```{r population visualization}
+```{r population visualization - LOS Index}
 ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
   geom_jitter(aes(colour = factor(UNIT_COUNT)),
               width = .2) +
@@ -154,6 +152,7 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
         legend.position = "none")
 ```
 
+## Correlations
 ### LOS Index X Unit Count (no outliers)
 ```{r los index no outliers, message=FALSE}
 # remove outliers
@@ -339,49 +338,6 @@ final_plot <- plot_main / plot_table + plot_layout(heights = c(10, 1))
 final_plot
 ```
 
-### LOS Index Boarders
-```{r boarder comp, message=FALSE}
-# remove outliers
-no_outliers <- encounter_unit_switch %>%
-  filter(UNIT_COUNT <= 10,
-         LOS_INDEX <= 10) %>%
-  mutate(UNIT_COUNT_F = factor(UNIT_COUNT, levels = 1:10, ordered = TRUE)) %>%
-  arrange(UNIT_COUNT_F)
-
-ggplot(no_outliers, aes(x = LOS_INDEX, fill = IS_BOARDER)) +
-  geom_density(alpha = 0.6) + 
-  geom_vline(xintercept = 1, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 1) +
-  facet_grid(IS_BOARDER ~ ., 
-             labeller = as_labeller(c("FALSE" = "Non-Boarder", "TRUE" = "Boarder"))) +
-  labs(
-    title = "ED Boarding Effect on LOS Index",
-    x = "LOS Index",
-    y = "Density"
-  ) +
-  theme(
-    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 14, hjust = 0.5),
-    axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 12),
-    strip.text = element_text(size = 14, face = "bold"),
-    strip.background = element_rect(fill = "gray95", color = "gray80"),
-    panel.grid.minor = element_blank(),
-    legend.position = "none"
-  )
-
-no_outliers %>%
-  group_by(IS_BOARDER) %>%
-  summarise(count = n(),
-            med = median(LOS_INDEX),
-            avg = mean(LOS_INDEX),
-            sd = sd(LOS_INDEX),
-            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
-  kable() %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
-                font_size = 10,
-                full_width = F)
-```
-
 ### LOS Index Level of Care
 ```{r flag comp, message=FALSE}
 # remove outliers
@@ -414,6 +370,125 @@ ggplot(no_outliers, aes(x = LOS_INDEX, fill = FLAG)) +
 
 no_outliers %>%
   group_by(FLAG) %>%
+  summarise(count = n(),
+            med = median(LOS_INDEX),
+            avg = mean(LOS_INDEX),
+            sd = sd(LOS_INDEX),
+            `los_index_<=1` = mean(LOS_INDEX <= 1, na.rm = TRUE) * 100) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 10,
+                full_width = F)
+```
+
+## Boarders
+### Boarder Data
+```{r boarder data, message=FALSE}
+# load ed boarder data exclude MSSN
+ed_boarders <- read_csv("ed_boarder.csv") %>%
+  filter(!(`ARRV DEPT (group)` %in% c("MSSN OS", "MSSN LB"))) %>%
+  select(CSN, `Admit Decision to Depart(Admits & Boarder)`) %>%
+  mutate(BOARD_DURATION = case_when(
+    is.na(`Admit Decision to Depart(Admits & Boarder)`) ~ 0,
+    TRUE ~ `Admit Decision to Depart(Admits & Boarder)`))
+
+# get strictly emergency encouters
+emergency_encounters <- encounter_unit_switch %>%
+  filter(ADMIT_TYPE_DESC_SRC == "EMERGENCY")
+
+# join IPCAP with ED boarding data
+ip_boarding_join <- emergency_encounters %>%
+  left_join(ed_boarders, by = c("EPIC_CSN" = "CSN"))
+
+# quality check for missing encounters
+boarding_qc <- ip_boarding_join %>% filter(is.na(BOARD_DURATION))
+nrow(boarding_qc)/nrow(ip_boarding_join) * 100
+
+# remove nas
+ip_boarding_final <- ip_boarding_join %>%
+  filter(!is.na(BOARD_DURATION))
+
+```
+
+### Boarding Distribution
+```{r boarding distribution}
+no_outliers <- ip_boarding_final %>%
+  filter(BOARD_DURATION <= 7500,
+         LOS_INDEX <= 10)
+
+ggplot(no_outliers, aes(x = BOARD_DURATION, y = LOS_INDEX)) +
+  geom_hex(bins = 50) +
+  geom_smooth(method = "gam", color = "red") +
+  scale_fill_viridis_c()
+```
+
+### LOS Index Boarders
+```{r boarder comparison, message=FALSE}
+# We manually define the sequence and append Inf (Infinity)
+breaks_seq <- c(seq(0, 1500, by = 500), Inf)
+
+# Create labels that are easy to read (e.g., "0-250", ..., "1500+")
+labels_seq <- c("0-500 min", "500-1000 min", "1000-1500 min", "1500+ min")
+
+no_outliers_bins <- ip_boarding_final %>%
+  filter(BOARD_DURATION <= 7500,
+         LOS_INDEX <= 5) %>%
+  mutate(board_bin = cut(BOARD_DURATION, 
+                         breaks = breaks_seq, 
+                         labels = labels_seq,
+                         right = FALSE))
+
+ggplot(no_outliers_bins, aes(x = LOS_INDEX)) +
+  geom_density(fill = "firebrick", alpha = 0.5, color = "darkred") +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 0.8) +
+  facet_wrap(~ board_bin, ncol = 1) + 
+  theme_minimal() +
+  labs(
+    title = "System LOS Index Density by Boarding Duration",
+    subtitle = "Boarding <= 7500 min, LOS_INDEX <= 5",
+    x = "LOS Index",
+    y = "Density"
+  ) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95", color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+hospitals <- unique(no_outliers_bins$FACILITY_MSX)
+for (hosp in hospitals) {
+  p <- ggplot(no_outliers_bins %>%
+           filter(FACILITY_MSX == hosp), aes(x = LOS_INDEX)) +
+  geom_density(fill = "firebrick", alpha = 0.5, color = "darkred") +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 0.8) +
+  facet_wrap(~ board_bin, ncol = 1) + 
+  theme_minimal() +
+  labs(
+    title = paste(hosp, "LOS Index Density by Boarding Duration"),
+    subtitle = "Boarding <= 7500 min, LOS_INDEX <= 5",
+    x = "LOS Index",
+    y = "Density"
+  ) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95", color = "gray80"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+  print(p)
+}
+
+no_outliers_bins %>%
+  group_by(FACILITY_MSX, board_bin) %>%
   summarise(count = n(),
             med = median(LOS_INDEX),
             avg = mean(LOS_INDEX),

@@ -14,7 +14,7 @@ library(openxlsx)
 library(readxl)
 library(rmarkdown)
 
-# -------------------------------------------------------- Functions & Constants --------------------------------------------------------
+# -------------------------------------------------------- Load Data -------------------------------------------------------------------------
 
 # OAO_PRODUCTION DB connection
 con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")

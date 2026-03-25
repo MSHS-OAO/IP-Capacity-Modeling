@@ -16,18 +16,16 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
     unit_capacity_adjustments = unit_capacity_adjustments,
     level = "EXTERNAL_NAME"
   )
-
+  
   daily_demand_unit <- daily_demand(datasets_processed, level = "EXTERNAL_NAME")
   names(daily_demand_unit) <- names(datasets_processed)
-
+  
   daily_demand_unit <- lapply(names(daily_demand_unit), function(dataset) {
     daily_demand_unit[[dataset]] %>%
       mutate(DATASET = toupper(dataset))
   })
-
+  
   daily_demand_unit <- bind_rows(daily_demand_unit)
-  
-  
   
   # join capacity + compute utilization
   util_df <- daily_demand_unit %>%
@@ -85,27 +83,9 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
       names_repair = "check_unique"
     )
   
-  # Combine + DOW_MIN/MAX/DIFF + pivot
+  # Combine + pivot
   util_all <- overall %>%
     left_join(dow_wide, by = c("LOC_NAME","SERVICE_GROUP","EXTERNAL_NAME","DATASET")) %>%
-    rowwise() %>%
-    mutate(
-      .all_na  = all(is.na(c_across(all_of(dow_order)))),
-      .min_val = if (.all_na) NA_real_ else min(c_across(all_of(dow_order)), na.rm = TRUE),
-      .max_val = if (.all_na) NA_real_ else max(c_across(all_of(dow_order)), na.rm = TRUE),
-      
-      DOW_MIN  = if (.all_na) NA_character_ else paste0(
-        paste(dow_order[which(c_across(all_of(dow_order)) == .min_val)], collapse = ", "),
-        ": ", sprintf("%.2f", .min_val), "%"
-      ),
-      DOW_MAX  = if (.all_na) NA_character_ else paste0(
-        paste(dow_order[which(c_across(all_of(dow_order)) == .max_val)], collapse = ", "),
-        ": ", sprintf("%.2f", .max_val), "%"
-      ),
-      DOW_DIFF = if (.all_na) NA_real_ else round(.max_val - .min_val, 2)
-    ) %>%
-    ungroup() %>%
-    select(-.all_na, -.min_val, -.max_val) %>%
     pivot_wider(
       names_from  = DATASET,
       values_from = c(
@@ -113,7 +93,6 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
         WEEKEND_AVG_UTILIZATION, WEEKDAY_AVG_UTILIZATION,
         WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE,
         OVERALL_MIN_UTILIZATION, OVERALL_MAX_UTILIZATION,
-        DOW_MIN, DOW_MAX, DOW_DIFF,
         all_of(dow_order)
       ),
       names_glue  = "{.value}_{DATASET}",
@@ -127,7 +106,7 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
   pct_cols <- grep(
     paste0(
       "^(AVG_BED_UTILIZATION|UTILIZATION_SD|WEEKEND_AVG_UTILIZATION|WEEKDAY_AVG_UTILIZATION|",
-      "WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE|OVERALL_MIN_UTILIZATION|OVERALL_MAX_UTILIZATION|DOW_DIFF|",
+      "WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE|OVERALL_MIN_UTILIZATION|OVERALL_MAX_UTILIZATION|",
       paste(dow_order, collapse="|"),
       ")_(BASELINE|SCENARIO)$"
     ),

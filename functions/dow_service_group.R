@@ -18,7 +18,6 @@ ip_comparison_dow_service_group_function <- function(ip_comparison_daily) {
         AVG_DAILY_DEMAND_SCENARIO = mean(DAILY_DEMAND_SCENARIO, na.rm = TRUE),
         .groups = "drop"
       )
-
     
     util_long <- df %>%
       select(
@@ -39,7 +38,6 @@ ip_comparison_dow_service_group_function <- function(ip_comparison_daily) {
       ) %>%
       select(-metric)
     
-    
     overall <- util_long %>%
       group_by(LOC_NAME, SERVICE_GROUP, PERIOD) %>%
       summarise(
@@ -53,31 +51,25 @@ ip_comparison_dow_service_group_function <- function(ip_comparison_daily) {
       ) %>%
       mutate(WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE = round(WEEKEND_AVG_UTILIZATION - WEEKDAY_AVG_UTILIZATION, 2))
     
+    # DOW averages wide
     dow_wide <- util_long %>%
       group_by(LOC_NAME, SERVICE_GROUP, PERIOD, DAY_OF_WEEK) %>%
       summarise(.v = round(mean(UTILIZATION, na.rm = TRUE) * 100, 2), .groups = "drop") %>%
       mutate(DAY_OF_WEEK = factor(DAY_OF_WEEK, levels = dow_order)) %>%
       pivot_wider(names_from = DAY_OF_WEEK, values_from = .v)
     
+    # Combine + pivot
     util_all <- overall %>%
       left_join(dow_wide, by = c("LOC_NAME","SERVICE_GROUP","PERIOD")) %>%
-      rowwise() %>%
-      mutate(
-        .min_val = min(c_across(all_of(dow_order)), na.rm = TRUE),
-        .max_val = max(c_across(all_of(dow_order)), na.rm = TRUE),
-        DOW_MIN  = paste0(paste(dow_order[which(c_across(all_of(dow_order)) == .min_val)], collapse = ", "),
-                          ": ", sprintf("%.2f", .min_val), "%"),
-        DOW_MAX  = paste0(paste(dow_order[which(c_across(all_of(dow_order)) == .max_val)], collapse = ", "),
-                          ": ", sprintf("%.2f", .max_val), "%"),
-        DOW_DIFF = round(.max_val - .min_val, 2)
-      ) %>%
-      ungroup() %>%
-      select(-.min_val, -.max_val) %>%
       pivot_wider(
         names_from  = PERIOD,
-        values_from = c(AVG_BED_UTILIZATION, UTILIZATION_SD, WEEKEND_AVG_UTILIZATION, WEEKDAY_AVG_UTILIZATION,
-                        WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE, OVERALL_MIN_UTILIZATION, OVERALL_MAX_UTILIZATION,
-                        DOW_MIN, DOW_MAX, DOW_DIFF, all_of(dow_order)),
+        values_from = c(
+          AVG_BED_UTILIZATION, UTILIZATION_SD,
+          WEEKEND_AVG_UTILIZATION, WEEKDAY_AVG_UTILIZATION,
+          WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE,
+          OVERALL_MIN_UTILIZATION, OVERALL_MAX_UTILIZATION,
+          all_of(dow_order)
+        ),
         names_glue  = "{.value}_{PERIOD}"
       )
     
@@ -85,21 +77,51 @@ ip_comparison_dow_service_group_function <- function(ip_comparison_daily) {
     
     pct_cols <- grep(
       paste0("^(AVG_BED_UTILIZATION|UTILIZATION_SD|WEEKEND_AVG_UTILIZATION|WEEKDAY_AVG_UTILIZATION|",
-             "WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE|OVERALL_MIN_UTILIZATION|OVERALL_MAX_UTILIZATION|DOW_DIFF|",
+             "WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE|OVERALL_MIN_UTILIZATION|OVERALL_MAX_UTILIZATION|",
              paste(dow_order, collapse="|"), ")_(BASELINE|SCENARIO)$"),
       names(out), value = TRUE
     )
     
-    out %>% mutate(across(all_of(pct_cols), ~ round(.x / 100, 4)))
+    out %>% 
+      mutate(across(all_of(pct_cols), ~ round(.x / 100, 4))) %>%
+      filter(AVG_DAILY_DEMAND_BASELINE >= 1)
     }
 }
 
-
-mode_chr <- function(x) {
-  x <- x[!is.na(x) & x != ""]
-  if (!length(x)) return(NA_character_)
-  tab <- sort(table(x), decreasing = TRUE)
-  names(tab)[1]
+add_dow_diff_summary_columns <- function(df) {
+  
+  dow_order <- c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
+  dow_baseline_cols <- paste0(dow_order, "_BASELINE")
+  dow_scenario_cols <- paste0(dow_order, "_SCENARIO")
+  
+  df %>%
+    rowwise() %>%
+    mutate(
+      .min_val_baseline = if (all(is.na(c_across(all_of(dow_baseline_cols))))) NA_real_ else min(c_across(all_of(dow_baseline_cols)), na.rm = TRUE),
+      .max_val_baseline = if (all(is.na(c_across(all_of(dow_baseline_cols))))) NA_real_ else max(c_across(all_of(dow_baseline_cols)), na.rm = TRUE),
+      .min_val_scenario = if (all(is.na(c_across(all_of(dow_scenario_cols))))) NA_real_ else min(c_across(all_of(dow_scenario_cols)), na.rm = TRUE),
+      .max_val_scenario = if (all(is.na(c_across(all_of(dow_scenario_cols))))) NA_real_ else max(c_across(all_of(dow_scenario_cols)), na.rm = TRUE),
+      
+      DOW_MIN_BASELINE = if (is.na(.min_val_baseline)) NA_character_ else paste0(
+        paste(dow_order[which(c_across(all_of(dow_baseline_cols)) == .min_val_baseline)], collapse = ", "),
+        ": ", sprintf("%.2f", .min_val_baseline * 100), "%"
+      ),
+      DOW_MAX_BASELINE = if (is.na(.max_val_baseline)) NA_character_ else paste0(
+        paste(dow_order[which(c_across(all_of(dow_baseline_cols)) == .max_val_baseline)], collapse = ", "),
+        ": ", sprintf("%.2f", .max_val_baseline * 100), "%"
+      ),
+      DOW_DIFF_BASELINE = if (is.na(.min_val_baseline) | is.na(.max_val_baseline)) NA_real_ else round(.max_val_baseline - .min_val_baseline, 4),
+      
+      DOW_MIN_SCENARIO = if (is.na(.min_val_scenario)) NA_character_ else paste0(
+        paste(dow_order[which(c_across(all_of(dow_scenario_cols)) == .min_val_scenario)], collapse = ", "),
+        ": ", sprintf("%.2f", .min_val_scenario * 100), "%"
+      ),
+      DOW_MAX_SCENARIO = if (is.na(.max_val_scenario)) NA_character_ else paste0(
+        paste(dow_order[which(c_across(all_of(dow_scenario_cols)) == .max_val_scenario)], collapse = ", "),
+        ": ", sprintf("%.2f", .max_val_scenario * 100), "%"
+      ),
+      DOW_DIFF_SCENARIO = if (is.na(.min_val_scenario) | is.na(.max_val_scenario)) NA_real_ else round(.max_val_scenario - .min_val_scenario, 4)
+    ) %>%
+    ungroup() %>%
+    select(-.min_val_baseline, -.max_val_baseline, -.min_val_scenario, -.max_val_scenario)
 }
-
-

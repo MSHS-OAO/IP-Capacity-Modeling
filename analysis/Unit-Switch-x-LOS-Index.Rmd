@@ -107,7 +107,7 @@ head(encounter_unit_switch) %>%
 # Visualizations
 ## Distributions
 ### Full Population - LOS Distribution
-```{r population visualization}
+```{r population visualization - LOS}
 ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_NO_SRC)) +
   geom_jitter(aes(colour = factor(UNIT_COUNT)),
               width = .2) +
@@ -130,7 +130,7 @@ ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_NO_SRC)) +
 ```
 
 ### Full Population - LOS Index Distribution
-```{r population visualization}
+```{r population visualization - LOS Index}
 ggplot(encounter_unit_switch, aes(x = UNIT_COUNT, y = LOS_INDEX)) +
   geom_jitter(aes(colour = factor(UNIT_COUNT)),
               width = .2) +

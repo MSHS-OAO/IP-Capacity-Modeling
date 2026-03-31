@@ -34,10 +34,13 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       LOC_NAME == 'MOUNT SINAI BETH ISRAEL'  ~ 'MSBI',
       LOC_NAME == 'MOUNT SINAI MORNINGSIDE'  ~ 'MSM',
       LOC_NAME == 'MOUNT SINAI WEST'         ~ 'MSW',
-      TRUE ~ LOC_NAME
-    )
-  )
-
+      TRUE ~ LOC_NAME),
+    FACILITY_MSX = case_when(
+      FACILITY_MSX == "BIB" ~ "MSB",
+      FACILITY_MSX == "BIP" ~ "MSBI",
+      FACILITY_MSX == "RVT" ~ "MSW",
+      FACILITY_MSX == "STL" ~ "MSM",
+      TRUE ~ FACILITY_MSX))
 
 #pool NA SERVICE_GROUP vals as "Other"
 baseline <- baseline %>%
@@ -54,10 +57,10 @@ baseline <- baseline %>%
     LOC_NAME = case_when(
       SERVICE_GROUP == "Other" & FACILITY_MSX == "MSH" ~ "MSH",
       SERVICE_GROUP == "Other" & FACILITY_MSX == "MSQ" ~ "MSQ",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIP" ~ "MSBI",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIB" ~ "MSB",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "STL" ~ "MSM",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "RVT" ~ "MSW",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSBI" ~ "MSBI",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSB" ~ "MSB",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSM" ~ "MSM",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSW" ~ "MSW",
       TRUE ~ LOC_NAME
     )
   )
@@ -103,7 +106,7 @@ unit_capacity_adjustments <- "tisch_cancer_center_12.4.2025.csv"
 vol_projections_file <- "2026_budget_volume.csv"
 
 # file with los adjustments
-los_projections_file <- "los_adjustments_2025Q4.csv"
+los_projections_file <- "los_adjustments_2027Q4.csv"
 
 # emergency exclusions
 exclusion_hosp1 <- TRUE
@@ -113,15 +116,17 @@ exclusion_hosp2 <- TRUE
 percentage_to_hosp1_list <- c(0.4, 0.9)
 percentage_to_hosp2_list <- c(0.9,0.4)
 
-
-
 # calculate # of weekdays and # of all days in dataset
-num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
-                                min(baseline$SERVICE_DATE), 
-                                units = "days")) + 1
-weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
-num_weekdays <- sum(!wday(weekdays) %in% c(1, 7))
-
+all_dates <- seq(min(baseline$SERVICE_DATE),max(baseline$SERVICE_DATE), by = "day")
+num_days <- length(all_dates)
+num_weekdays <- sum(!wday(all_dates) %in% c(1, 7))
+num_weekend_days <- sum(wday(all_dates) %in% c(1, 7))
+dow_counts <- table(
+  factor(
+    toupper(weekdays(all_dates)),
+    levels = c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
+  )
+)
 
 
 # run code for IP_Utilization

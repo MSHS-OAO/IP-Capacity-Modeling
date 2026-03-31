@@ -201,7 +201,7 @@ ip_utilization_model <- function(generator = "", n_simulations = 1) {
     left_join(
       ip_comparison_dow_service_group %>%
         select(any_of(c(
-          "LOC_NAME","SERVICE_GROUP",
+          "LOC_NAME","SERVICE_GROUP", "WEEKDAY_AVG_UTILIZATION_BASELINE", "WEEKDAY_AVG_UTILIZATION_SCENARIO",
           "DOW_DIFF_BASELINE","DOW_DIFF_SCENARIO",
           "DOW_MIN_BASELINE","DOW_MAX_BASELINE",
           "DOW_MIN_SCENARIO","DOW_MAX_SCENARIO"

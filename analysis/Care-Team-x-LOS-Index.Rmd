@@ -45,9 +45,14 @@ baseline <- tbl(con_prod, "IPCAP_CARE_TEAM") %>% collect() %>%
 encounter_care_team <- baseline %>%  
   arrange(ENCOUNTER_NO, ATTEND_FROM_DTTM) %>%
   group_by(ENCOUNTER_NO) %>%
-  mutate(CARE_CHANGE = NPI != lag(NPI),
-         NEW_CARE_TEAM    = is.na(lag(NPI)) | CARE_CHANGE,
+  mutate(PROVIDER_CHANGE = NPI != lag(NPI),
+         NEW_PROVIDER    = is.na(lag(NPI)) | PROVIDER_CHANGE,
+         PROVIDER_ID     = cumsum(NEW_PROVIDER),
+         
+         CARE_TEAM_CHANGE = SERVICE_TEAM != lag(SERVICE_TEAM),
+         NEW_CARE_TEAM    = is.na(lag(SERVICE_TEAM)) | CARE_TEAM_CHANGE,
          CARE_TEAM_ID     = cumsum(NEW_CARE_TEAM),
+         
          LOS_INDEX = LOS_NO_SRC / VIZ_EX_LOS)
 ```
 
@@ -57,7 +62,8 @@ encounter_care_team <- baseline %>%
 encounter_care_switch <- encounter_care_team %>%
   group_by(ENCOUNTER_NO, MSDRG_CD_SRC, 
            MSDRG_DESC_MSX, LOS_NO_SRC, VIZ_EX_LOS, LOS_INDEX) %>%
-  summarise(CARE_TEAM_COUNT = max(CARE_TEAM_ID))
+  summarise(PROVIDER_COUNT = max(PROVIDER_ID),
+            CARE_TEAM_COUNT = max(CARE_TEAM_ID))
 
 head(encounter_care_switch) %>%
   kable() %>%

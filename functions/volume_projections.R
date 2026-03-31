@@ -6,7 +6,7 @@ volume_projections <- function(df, vol_projections_file) {
 
   df <- df %>%
     group_by(ENCOUNTER_NO) %>%
-    arrange(SERVICE_DATE, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, .by_group = TRUE) %>%
+    arrange(FACILITY_MSX, SERVICE_DATE, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE, .by_group = TRUE) %>%
     mutate(OG_SEQ = row_number()) %>%
     ungroup()
 

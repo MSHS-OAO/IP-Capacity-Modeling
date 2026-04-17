@@ -94,9 +94,26 @@ neuro_drg_query <- paste0("('", paste(neuro_drg, collapse = "', '"), "')")
 
 
 # query to capture combining IP and OR data ----
-ip_or_query <- glue("SELECT  d.pat_mrn_id, d.patient_in_room_dttm,d.patient_out_room_dttm, i.encounter_no,  i.admit_dt_src,  i.dsch_dt_src, d.or_case_id, d.case_status,d.turnover_from_prior_case
+ip_or_query <- glue("select d.pat_mrn_id               as or_pat_mrn_id,
+                            d.patient_in_room_dttm     as or_patient_in_room_dttm,
+                            d.patient_out_room_dttm    as or_patient_out_room_dttm,
+                            d.or_case_id               as or_case_id,
+                            d.case_status              as or_case_status,
+                            d.turnover_from_prior_case as or_turnover_from_prior_case,
+                            d.PRIMARY_PROC_CODE        as or_primary_procedure_code
+                            rm.room_id                 as or_rm_room_id,
+                            rm.location_nm             as or_rm_location_name,
+                            rm.cluster_name            as or_rm_cluster_name,
+                            i.encounter_no             as msxipoutput_encounter_no,
+                            i.admit_dt_src             as msxipoutput_admit_dt_src,
+                            i.dsch_dt_src              as msxipoutput_dsch_dt_src,
+                            i.msdrg_cd_src             as msxipoutput_msdrg_cd_src,
+                            i.facility_msx             as msxipoutput_facility_msx
                     FROM {or_encounter_data_table_name} d 
-                    LEFT JOIN {ip_encounter_table_name} i ON i.MRN_MSX = d.PAT_MRN_ID and d.PATIENT_IN_ROOM_DTTM between i.ADMIT_DT_SRC and i.DSCH_DT_SRC
+                    LEFT JOIN {room_master_data_table_name} rm
+                        ON d.or_id = rm.room_id
+                    LEFT JOIN {ip_encounter_table_name} i 
+                        ON i.MRN_MSX = d.PAT_MRN_ID and d.PATIENT_IN_ROOM_DTTM between i.ADMIT_DT_SRC and i.DSCH_DT_SRC
                     where d.PATIENT_IN_ROOM_DTTM is not null and
                           d.SURGERY_DATE >= TO_DATE('{sched_start_date}','YYYY-MM-DD') AND
                           i.MSDRG_CD_SRC IN {neuro_drg_query} AND

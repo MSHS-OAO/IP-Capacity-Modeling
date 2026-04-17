@@ -125,7 +125,7 @@ ip_or_query <- glue("select d.pat_mrn_id               as or_pat_mrn_id,
 dsn <- "OAO Cloud DB Production"
 conn <- dbConnect(odbc(), dsn)
 dbExecute(conn, "ALTER SESSION SET TIME_ZONE = 'America/New_York'")
-ip_or_data <- dbGetQuery(conn,ip_or_query)
+ip_or_data <- dbGetQuery(conn,"SELECT * FROM IPCAP_OR_CASE_DATA")
 dbDisconnect(conn)
 
 

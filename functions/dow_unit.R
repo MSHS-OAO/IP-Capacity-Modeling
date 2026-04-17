@@ -41,12 +41,12 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
       DAILY_DEMAND, BED_CAPACITY, UTILIZATION
     )
   
-  # Capacity/Demand summaries ----
+  # # Capacity/Demand summaries ----
   cap_dem_wide <- util_df %>%
     group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, DATASET) %>%
     summarise(
-      AVG_BED_CAPACITY = if (all(is.na(BED_CAPACITY))) NA_real_ else mean(BED_CAPACITY, na.rm = TRUE),
-      AVG_DAILY_DEMAND = mean(DAILY_DEMAND, na.rm = TRUE),
+      AVG_BED_CAPACITY = if (all(is.na(BED_CAPACITY))) NA_real_ else sum(BED_CAPACITY, na.rm = TRUE) / num_days,
+      AVG_DAILY_DEMAND = if (all(is.na(DAILY_DEMAND))) NA_real_ else sum(DAILY_DEMAND, na.rm = TRUE) / num_days,
       .groups = "drop"
     ) %>%
     pivot_wider(
@@ -60,22 +60,31 @@ ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_ad
   overall <- util_df %>%
     group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, DATASET) %>%
     summarise(
-      AVG_BED_UTILIZATION     = round(mean(UTILIZATION, na.rm = TRUE) * 100, 2),
-      WEEKDAY_AVG_UTILIZATION = round(mean(UTILIZATION[!DAY_OF_WEEK %in% c("SATURDAY","SUNDAY")], na.rm = TRUE) * 100, 2),
-      WEEKEND_AVG_UTILIZATION = round(mean(UTILIZATION[ DAY_OF_WEEK %in% c("SATURDAY","SUNDAY")], na.rm = TRUE) * 100, 2),
+      AVG_BED_UTILIZATION = if_else(num_days == 0, NA_real_,
+                                    round(sum(UTILIZATION, na.rm = TRUE) / num_days * 100, 2)),
+
+      WEEKDAY_AVG_UTILIZATION = if_else(num_weekdays == 0, NA_real_,
+                                        round(sum(UTILIZATION[!DAY_OF_WEEK %in% c("SATURDAY","SUNDAY")], na.rm = TRUE) / num_weekdays * 100, 2)),
+
+      WEEKEND_AVG_UTILIZATION = if_else(num_weekend_days == 0, NA_real_,
+                                        round(sum(UTILIZATION[DAY_OF_WEEK %in% c("SATURDAY","SUNDAY")], na.rm = TRUE) / num_weekend_days * 100, 2)),
+
       OVERALL_MIN_UTILIZATION = if (all(is.na(UTILIZATION))) NA_real_ else round(min(UTILIZATION, na.rm = TRUE) * 100, 2),
       OVERALL_MAX_UTILIZATION = if (all(is.na(UTILIZATION))) NA_real_ else round(max(UTILIZATION, na.rm = TRUE) * 100, 2),
-      UTILIZATION_SD          = if (sum(!is.na(UTILIZATION)) < 2) NA_real_ else round(sd(UTILIZATION, na.rm = TRUE) * 100, 2),
+      UTILIZATION_SD = if (sum(!is.na(UTILIZATION)) < 2) NA_real_ else round(sd(UTILIZATION, na.rm = TRUE) * 100, 2),
+
       .groups = "drop"
     ) %>%
     mutate(WEEKEND_TO_WEEKDAY_AVG_DIFFERENCE = round(WEEKEND_AVG_UTILIZATION - WEEKDAY_AVG_UTILIZATION, 2))
-  
+   
   # DOW averages wide
   dow_wide <- util_df %>%
-    mutate(DAY_OF_WEEK = toupper(weekdays(SERVICE_DATE))) %>%
     filter(DAY_OF_WEEK %in% dow_order) %>%
     group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME, DATASET, DAY_OF_WEEK) %>%
-    summarise(.v = round(mean(UTILIZATION, na.rm = TRUE) * 100, 2), .groups = "drop") %>%
+    summarise(
+      .v = round(sum(UTILIZATION, na.rm = TRUE) / as.numeric(dow_counts[DAY_OF_WEEK[1]]) * 100, 2),
+      .groups = "drop"
+    ) %>%
     mutate(DAY_OF_WEEK = factor(DAY_OF_WEEK, levels = dow_order)) %>%
     pivot_wider(
       names_from = DAY_OF_WEEK,

@@ -57,10 +57,10 @@ baseline <- baseline %>%
     LOC_NAME = case_when(
       SERVICE_GROUP == "Other" & FACILITY_MSX == "MSH" ~ "MSH",
       SERVICE_GROUP == "Other" & FACILITY_MSX == "MSQ" ~ "MSQ",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIP" ~ "MSBI",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "BIB" ~ "MSB",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "STL" ~ "MSM",
-      SERVICE_GROUP == "Other" & FACILITY_MSX == "RVT" ~ "MSW",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSBI" ~ "MSBI",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSB" ~ "MSB",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSM" ~ "MSM",
+      SERVICE_GROUP == "Other" & FACILITY_MSX == "MSW" ~ "MSW",
       TRUE ~ LOC_NAME
     )
   )
@@ -93,10 +93,16 @@ vol_projections_file <- "2026_budget_volume.csv"
 los_projections_file <- "los_adjustments_2027Q4.csv"
 
 # calculate # of weekdays and # of all days in dataset
-num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
-                                min(baseline$SERVICE_DATE), 
-                                units = "days")) + 1
-weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
+all_dates <- seq(min(baseline$SERVICE_DATE),max(baseline$SERVICE_DATE), by = "day")
+num_days <- length(all_dates)
+num_weekdays <- sum(!wday(all_dates) %in% c(1, 7))
+num_weekend_days <- sum(wday(all_dates) %in% c(1, 7))
+dow_counts <- table(
+  factor(
+    toupper(weekdays(all_dates)),
+    levels = c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
+  )
+)
 
 # run code for IP_Utilization
 utilizations <- list()
@@ -169,6 +175,6 @@ for (i in seq_along(dow_sg_outputs)) {
 saveWorkbook(
   wb_dow,
   file = paste0(cap_dir, "Model Outputs/Workbooks/",
-                "DOW_MSHS_IP_Utilization", Sys.Date(), ".xlsx"),
+                "DOW_MSHS_IP_Utilization_", Sys.Date(), ".xlsx"),
   overwrite = TRUE
 )

@@ -108,6 +108,7 @@ ip_or_query <- glue("select d.pat_mrn_id               as or_pat_mrn_id,
                             i.admit_dt_src             as msxipoutput_admit_dt_src,
                             i.dsch_dt_src              as msxipoutput_dsch_dt_src,
                             i.msdrg_cd_src             as msxipoutput_msdrg_cd_src,
+                            i.msdrg_desc_msx           as msxipoutput_msdrg_desc_msx,
                             i.facility_msx             as msxipoutput_facility_msx
                     FROM {or_encounter_data_table_name} d 
                     LEFT JOIN {room_master_data_table_name} rm

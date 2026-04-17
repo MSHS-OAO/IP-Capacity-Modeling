@@ -1,5 +1,5 @@
 daily_demand <- function(datasets_processed,
-                                   level = c("SERVICE_GROUP", "EXTERNAL_NAME")) {
+                                   level = c("SERVICE_GROUP", "EXTERNAL_NAME","ENCOUNTER")) {
   
   level <- match.arg(level)
   
@@ -56,7 +56,25 @@ daily_demand <- function(datasets_processed,
           DAILY_DEMAND = sum(BED_CHARGES, na.rm = TRUE),
           .groups = "drop"
         ) 
-      } # else if (level == "ENCOUNTER") {}  (FOR DHEERAJ)
+    }  else if (level == "ENCOUNTER") {
+    
+
+      df <- df %>%
+        group_by(ENCOUNTER_NO) %>%
+        mutate(
+          ADMIT_DATE = min(SERVICE_DATE, na.rm = TRUE),
+          DISCHARGE_DATE = max(SERVICE_DATE, na.rm = TRUE)
+        ) %>%
+        ungroup() %>%
+        select(ENCOUNTER_NO, LOC_NAME, ADMIT_DATE, DISCHARGE_DATE) %>%
+        distinct() %>%
+        mutate(
+          LOS = as.numeric(DISCHARGE_DATE - ADMIT_DATE) + 1,
+          ADMIT_DOW = toupper(lubridate::wday(ADMIT_DATE, label = TRUE))
+        )
+      
+    
+      }
 
   })
   

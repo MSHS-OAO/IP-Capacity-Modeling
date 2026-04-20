@@ -208,6 +208,7 @@ ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_or_overlap.png
 # OR Demand Analysis by Cohort ----
 
 procedure_minutes <- ip_or_data_all_or_cases %>%
+  filter(ENCOUNTER_NO %in% enc_universe) %>%
   distinct(OR_CASE_ID, MSMRN, ENCOUNTER_NO, .keep_all = TRUE) %>%
   mutate(
     PATIENT_IN_ROOM_DTTM  = as.POSIXct(PATIENT_IN_ROOM_DTTM),
@@ -219,82 +220,175 @@ procedure_minutes <- ip_or_data_all_or_cases %>%
     procedure_and_tat = procedure_minutes+TURNOVER_FROM_PRIOR_CASE,
     surgery_month = lubridate::floor_date(as.Date(PATIENT_IN_ROOM_DTTM), "month")
   ) %>%
-  filter(procedure_minutes > 0)
+  filter(procedure_minutes > 0,
+         as.Date(PATIENT_IN_ROOM_DTTM) >= as.Date('2025-01-01'),
+         as.Date(PATIENT_IN_ROOM_DTTM) <= as.Date('2025-12-31'))
 
-monthly_or_demand <- procedure_minutes %>%
-  group_by(surgery_month, cohort_or, FACILITY_MSX) %>%
+
+daily_or_demand <- procedure_minutes %>%
+  group_by(SURGERY_DATE) %>%
   summarise(
     case_count       = n(),
-    total_or_hours = sum(procedure_and_tat, na.rm = TRUE)/60,
+    total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
     avg_or_minutes   = mean(procedure_and_tat, na.rm = TRUE),
     .groups          = "drop"
   )
 
-p_case_volume <- ggplot(monthly_or_demand,
-                        aes(x = surgery_month, y = case_count,
-                            color = cohort_or, group = cohort_or)) +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.5) +
-  scale_color_manual(values = c("DRG Only" = "#221F72",
-                                "CPT Only" = "#00AEEF",
-                                "Both"     = "#D80B8C")) +
-  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
-  labs(
-    title = "Monthly Neurosurgery OR Case Volume by Cohort",
-    x     = "Month", y = "Number of Cases", color = "Cohort"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-p_proc_minutes <- ggplot(monthly_or_demand,
-                         aes(x = surgery_month, y = avg_or_minutes,
-                             color = cohort_or, group = cohort_or)) +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.5) +
-  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
-  scale_color_manual(values = c("DRG Only" = "#221F72",
-                                "CPT Only" = "#00AEEF",
-                                "Both"     = "#D80B8C")) +
-  labs(
-    title = "Average Procedure+TAT Minutes by Cohort",
-    x     = "Month", y = "Avg OR Minutes", color = "Cohort"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-p_proc_minutes_total <- ggplot(monthly_or_demand,
-                         aes(x = surgery_month, y = total_or_hours,
-                             color = cohort_or, group = cohort_or)) +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.5) +
-  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
-  scale_color_manual(values = c("DRG Only" = "#221F72",
-                                "CPT Only" = "#00AEEF",
-                                "Both"     = "#D80B8C")) +
-  labs(
-    title = "Total Procedure+TAT Hours by Cohort",
-    x     = "Month", y = "Avg OR Minutes", color = "Cohort"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-print(p_case_volume)
-print(p_proc_minutes)
-print(p_proc_minutes_total)
-ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/CaseVolume.png"),
-       p_case_volume)
-ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/AvgProcedureTatHours.png"),
-       p_proc_minutes)
-ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/ProcedureTatMinutes.png"),
-       p_proc_minutes)
-
-cohort_demand_summary <- procedure_minutes %>%
-  group_by(cohort_or, FACILITY_MSX) %>%
+monthly_or_demand <- procedure_minutes %>%
+  group_by(surgery_month) %>%
   summarise(
-    total_cases      = n(),
+    case_count       = n(),
     total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
-    avg_or_minutes   = round(mean(procedure_and_tat, na.rm = TRUE), 1),
-    median_or_min    = round(median(procedure_and_tat, na.rm = TRUE), 1),
+    avg_or_minutes   = mean(procedure_and_tat, na.rm = TRUE),
     .groups          = "drop"
-  ) %>%
-  arrange(FACILITY_MSX, cohort_or)
+  ) 
+
+# Plots ----
+
+mshs_theme <- theme_minimal() +
+  theme(
+    plot.title       = element_text(color = "#221F72", face = "bold", size = 13),
+    axis.title       = element_text(color = "#221F72"),
+    axis.text.x      = element_text(angle = 45, hjust = 1),
+    legend.title     = element_text(color = "#221F72", face = "bold"),
+    strip.text       = element_text(color = "#FFFFFF", face = "bold"),
+    strip.background = element_rect(fill = "#221F72"),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
+
+scale_factor <- max(monthly_or_demand$case_count, na.rm = TRUE) /
+  max(monthly_or_demand$avg_or_minutes, na.rm = TRUE)
+
+p_combined <- ggplot(monthly_or_demand, aes(x = surgery_month)) +
+  geom_col(aes(y = avg_or_minutes * scale_factor, fill = "Avg OR Minutes"),
+           alpha = 0.6) +
+  geom_line(aes(y = case_count, color = "Case Volume"),
+            linewidth = 1) +
+  geom_point(aes(y = case_count, color = "Case Volume"),
+             size = 2) +
+  scale_color_manual(name = "", values = c("Case Volume"    = "#221F72")) +
+  scale_fill_manual(name  = "", values = c("Avg OR Minutes" = "#97CBE7")) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_y_continuous(
+    name     = "Case Volume",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Avg OR Minutes (Procedure + TAT)")
+  ) +
+  labs(
+    title = "Monthly Neurosurgery OR Case Volume & Avg OR Minutes",
+    x     = "Month"
+  ) +
+  guides(color = guide_legend(order = 1),
+         fill  = guide_legend(order = 2)) +
+  mshs_theme 
+
+
+print(p_combined)
+
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/or_demand_monthly_combined.png"),
+       p_combined, width = 12, height = 6, dpi = 150)
+
+
+# Daily Plot
+scale_factor_daily <- max(daily_or_demand$case_count, na.rm = TRUE) /
+  max(daily_or_demand$avg_or_minutes, na.rm = TRUE)
+
+p_combined_daily <- ggplot(daily_or_demand, aes(x = SURGERY_DATE)) +
+  # geom_area(aes(y = avg_or_minutes * scale_factor_daily, fill = "Avg OR Minutes"),
+  #          alpha = 0.6) +
+  geom_line(aes(y = total_or_minutes, color = "Total OR Minutes"),
+            linewidth = 0.6) +
+  # geom_point(aes(y = case_count, color = "Case Volume"),
+  #            size = 2) +
+  # geom_line(aes(y = avg_or_minutes),
+  #            linetype = "dashed", color = "#D80B8C", linewidth = 0.5)+
+  scale_color_manual(name = "", values = c("Total OR Minutes"    = "#D80B8C")) +
+  # scale_fill_manual(name  = "", values = c("Avg OR Minutes" = "#97CBE7")) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_y_continuous(
+    name     = "Total OR Minutes (Procedure + TAT)"
+    # sec.axis = sec_axis(~ . / scale_factor_daily, name = "Avg OR Minutes (Procedure + TAT)")
+  ) +
+  labs(
+    title = "Daily Neurosurgery OR Minutes (Procedure + TAT)",
+    x     = "Day"
+  ) +
+  guides(color = guide_legend(order = 1),
+         fill  = guide_legend(order = 2)) +
+  mshs_theme +
+  theme(legend.position = "none")
+
+
+print(p_combined_daily)
+
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/or_demand_daily_combined.png"),
+       p_combined_daily, width = 12, height = 6, dpi = 150)
+
+# p_case_volume <- ggplot(monthly_or_demand,
+#                         aes(x = surgery_month, y = case_count,
+#                             color = cohort_or, group = cohort_or)) +
+#   geom_line(linewidth = 0.8) +
+#   geom_point(size = 1.5) +
+#   scale_color_manual(values = c("DRG Only" = "#221F72",
+#                                 "CPT Only" = "#00AEEF",
+#                                 "Both"     = "#D80B8C")) +
+#   facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+#   labs(
+#     title = "Monthly Neurosurgery OR Case Volume by Cohort",
+#     x     = "Month", y = "Number of Cases", color = "Cohort"
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# p_proc_minutes <- ggplot(monthly_or_demand,
+#                          aes(x = surgery_month, y = avg_or_minutes,
+#                              color = cohort_or, group = cohort_or)) +
+#   geom_line(linewidth = 0.8) +
+#   geom_point(size = 1.5) +
+#   facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+#   scale_color_manual(values = c("DRG Only" = "#221F72",
+#                                 "CPT Only" = "#00AEEF",
+#                                 "Both"     = "#D80B8C")) +
+#   labs(
+#     title = "Average Procedure+TAT Minutes by Cohort",
+#     x     = "Month", y = "Avg OR Minutes", color = "Cohort"
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# p_proc_minutes_total <- ggplot(monthly_or_demand,
+#                          aes(x = surgery_month, y = total_or_minutes,
+#                              color = cohort_or, group = cohort_or)) +
+#   geom_line(linewidth = 0.8) +
+#   geom_point(size = 1.5) +
+#   facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+#   scale_color_manual(values = c("DRG Only" = "#221F72",
+#                                 "CPT Only" = "#00AEEF",
+#                                 "Both"     = "#D80B8C")) +
+#   labs(
+#     title = "Total Procedure+TAT Hours by Cohort",
+#     x     = "Month", y = "Avg OR Minutes", color = "Cohort"
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# print(p_case_volume)
+# print(p_proc_minutes)
+# print(p_proc_minutes_total)
+# ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/CaseVolume.png"),
+#        p_case_volume)
+# ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/AvgProcedureTatHours.png"),
+#        p_proc_minutes)
+# ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/ProcedureTatMinutes.png"),
+#        p_proc_minutes)
+# 
+# cohort_demand_summary <- procedure_minutes %>%
+#   group_by(cohort_or, FACILITY_MSX) %>%
+#   summarise(
+#     total_cases      = n(),
+#     total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
+#     avg_or_minutes   = round(mean(procedure_and_tat, na.rm = TRUE), 1),
+#     median_or_min    = round(median(procedure_and_tat, na.rm = TRUE), 1),
+#     .groups          = "drop"
+#   ) %>%
+#   arrange(FACILITY_MSX, cohort_or)

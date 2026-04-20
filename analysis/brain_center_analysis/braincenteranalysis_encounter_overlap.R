@@ -147,6 +147,51 @@ cat(glue(
 #        venn_plot, width = 8, height = 6, dpi = 150)
 
 
-# OR Demand Analysis by Cohort ----
+# OR Volume Analysis by Cohort ----
 
-or_cases_drg<-
+or_cases_drg <- unique(ip_or_data_drg$OR_CASE_ID)
+or_cases_cpt <- unique(ip_or_data_cpt$OR_CASE_ID)
+
+
+or_cases_both     <- intersect(or_cases_drg, or_cases_cpt)
+or_cases_drg_only <- setdiff(or_cases_drg, or_cases_cpt)
+or_cases_cpt_only <- setdiff(or_cases_cpt, or_cases_drg)
+or_cases_universe <- union(or_cases_drg, or_cases_cpt)
+
+cat(glue(
+  "DRG only OR Cases : {length(or_cases_drg_only)},{length(or_cases_drg_only)*100/length(or_cases_universe)}\n",
+  "CPT only OR Cases : {length(or_cases_cpt_only)},{length(or_cases_cpt_only)*100/length(or_cases_universe)}\n",
+  "OR Cases Common in DRG and CPT : {length(or_cases_both)},{length(or_cases_both)*100/length(or_cases_universe)}\n",
+  "Unique OR Cases across DRG and CPT : {length(or_cases_universe)}\n",
+  "Total DRG: {length(or_cases_drg)},{length(or_cases_drg)*100/length(or_cases_universe)}\n",
+  "Total CPT: {length(or_cases_cpt)},{length(or_cases_cpt)*100/length(or_cases_universe)}\n"
+))
+
+ip_or_data_drg <- ip_or_data_drg %>%
+  mutate(cohort_or = if_else(OR_CASE_ID %in% or_cases_both, "Both", "DRG Only"))
+
+ip_or_data_cpt <- ip_or_data_cpt %>%
+  mutate(cohort_or = if_else(OR_CASE_ID %in% or_cases_both, "Both", "CPT Only"))
+
+
+# Combined dataset (union, one row per OR case)
+ip_or_data_all <- bind_rows(
+  ip_or_data_drg,
+  ip_or_data_cpt %>% filter(OR_CASE_ID %in% or_cases_cpt_only)
+) %>%
+  distinct(OR_CASE_ID, .keep_all = TRUE)
+
+
+# Venn Diagram: DRG vs CPT encounter Volume overlap ----
+
+venn_list <- list(DRG = or_cases_drg, CPT = or_cases_cpt)
+
+venn_plot <- ggVennDiagram(venn_list, label_alpha = 0) +
+  scale_fill_gradient(low = "#F4FAFE", high = "#06ABEB") +
+  labs(title = "Neurosurgery OR Cases: DRG vs CPT OR Case Overlap") +
+  theme(legend.position = "none")
+
+
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_or_overlap.png"),
+       venn_plot, width = 8, height = 6, dpi = 150)
+

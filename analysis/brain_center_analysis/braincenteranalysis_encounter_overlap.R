@@ -73,24 +73,19 @@ neuro_cpt_query <- paste0("('", paste(neuro_cpt, collapse = "', '"), "')")
 # query to capture combining IP and OR data ----
 ip_or_query_drg <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
-                              WHERE d.CASE_STATUS = '{status}' AND
-                                    d.MSDRG_CD_SRC IN {neuro_drg_query} AND
-                                    d.SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
-                                    d.FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
+                              WHERE d.MSDRG_CD_SRC IN {neuro_drg_query} AND
+                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
 ip_or_query_cpt <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
-                              WHERE d.CASE_STATUS = '{status}' AND
-                                    d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
-                                    d.SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
-                                    d.FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
+                              WHERE d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
+                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
 
 
 ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
                                                   FROM {ip_or_master_table_name} d 
                                                   WHERE REGEXP_LIKE(SURGEON_SPECIALTY, 'NEURO') AND
                                                         MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL AND
-                                                        SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
-                                                        FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
+                                                        d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
 
 
 # Establish DB Connection and Get data ----
@@ -132,34 +127,34 @@ cat(glue(
 ))
 
 
-# ip_or_data_drg <- ip_or_data_drg %>%
-#   mutate(cohort = if_else(ENCOUNTER_NO %in% enc_both, "Both", "DRG Only"))
-# 
-# ip_or_data_cpt <- ip_or_data_cpt %>%
-#   mutate(cohort = if_else(ENCOUNTER_NO %in% enc_both, "Both", "CPT Only"))
-# 
-# 
-# # Combined dataset (union, one row per OR case)
-# ip_or_data_all <- bind_rows(
-#   ip_or_data_drg,
-#   ip_or_data_cpt %>% filter(ENCOUNTER_NO %in% enc_cpt_only)
-# ) %>%
-#   distinct(ENCOUNTER_NO, .keep_all = TRUE)
-# 
-# 
-# # Venn Diagram: DRG vs CPT encounter overlap ----
-# 
-# venn_list <- list(DRG = encounters_drg, CPT = encounters_cpt)
-# 
-# venn_plot <- ggVennDiagram(venn_list, label_alpha = 0) +
-#   scale_fill_gradient(low = "#F4FAFE", high = "#06ABEB") +
-#   labs(title = "Neurosurgery OR Cases: DRG vs CPT Encounter Overlap") +
-#   theme(legend.position = "none")
-# 
-# 
-# ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_overlap.png"),
-#        venn_plot, width = 8, height = 6, dpi = 150)
-# 
+ip_or_data_drg <- ip_or_data_drg %>%
+  mutate(cohort = if_else(ENCOUNTER_NO %in% enc_both, "Both", "DRG Only"))
+
+ip_or_data_cpt <- ip_or_data_cpt %>%
+  mutate(cohort = if_else(ENCOUNTER_NO %in% enc_both, "Both", "CPT Only"))
+
+
+# Combined dataset (union, one row per OR case)
+ip_or_data_all <- bind_rows(
+  ip_or_data_drg,
+  ip_or_data_cpt %>% filter(ENCOUNTER_NO %in% enc_cpt_only)
+) %>%
+  distinct(ENCOUNTER_NO, .keep_all = TRUE)
+
+
+# Venn Diagram: DRG vs CPT encounter overlap ----
+
+venn_list <- list(DRG = encounters_drg, CPT = encounters_cpt)
+
+venn_plot <- ggVennDiagram(venn_list, label_alpha = 0) +
+  scale_fill_gradient(low = "#F4FAFE", high = "#06ABEB") +
+  labs(title = "Neurosurgery OR Cases: DRG vs CPT Encounter Overlap") +
+  theme(legend.position = "none")
+
+
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_overlap.png"),
+       venn_plot, width = 8, height = 6, dpi = 150)
+
 
 # OR Volume Analysis by Cohort ----
 

@@ -75,19 +75,22 @@ ip_or_query_drg <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.CASE_STATUS = '{status}' AND
                                     d.MSDRG_CD_SRC IN {neuro_drg_query} AND
-                                    d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
+                                    d.SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
+                                    d.FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
 ip_or_query_cpt <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.CASE_STATUS = '{status}' AND
                                     d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
-                                    d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
+                                    d.SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
+                                    d.FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
 
 
 ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
                                                   FROM {ip_or_master_table_name} d 
                                                   WHERE REGEXP_LIKE(SURGEON_SPECIALTY, 'NEURO') AND
                                                         MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL AND
-                                                       d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
+                                                        SURGERY_DATE BETWEEN TO_DATE('2025-01-01', 'YYYY-MM-DD') AND TO_DATE('2025-12-31', 'YYYY-MM-DD') AND
+                                                        FACILITY_MSX in ('MSH', 'STL', 'RVT','MSQ');")
 
 
 # Establish DB Connection and Get data ----
@@ -227,7 +230,7 @@ monthly_or_demand <- procedure_minutes %>%
   group_by(surgery_month, cohort_or, FACILITY_MSX) %>%
   summarise(
     case_count       = n(),
-    total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
+    total_or_hours = sum(procedure_and_tat, na.rm = TRUE)/60,
     avg_or_minutes   = mean(procedure_and_tat, na.rm = TRUE),
     .groups          = "drop"
   )
@@ -264,10 +267,29 @@ p_proc_minutes <- ggplot(monthly_or_demand,
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+p_proc_minutes_total <- ggplot(monthly_or_demand,
+                         aes(x = surgery_month, y = total_or_hours,
+                             color = cohort_or, group = cohort_or)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+  scale_color_manual(values = c("DRG Only" = "#221F72",
+                                "CPT Only" = "#00AEEF",
+                                "Both"     = "#D80B8C")) +
+  labs(
+    title = "Total Procedure+TAT Hours by Cohort",
+    x     = "Month", y = "Avg OR Minutes", color = "Cohort"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 print(p_case_volume)
 print(p_proc_minutes)
+print(p_proc_minutes_total)
 ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/CaseVolume.png"),
        p_case_volume)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/AvgProcedureTatHours.png"),
+       p_proc_minutes)
 ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/ProcedureTatMinutes.png"),
        p_proc_minutes)
 

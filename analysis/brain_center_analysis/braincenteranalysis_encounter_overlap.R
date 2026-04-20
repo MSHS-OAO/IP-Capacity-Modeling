@@ -196,23 +196,69 @@ venn_plot <- ggVennDiagram(venn_list, label_alpha = 0) +
 ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_or_overlap.png"),
        venn_plot, width = 8, height = 6, dpi = 150)
 
-# OR Case Minutes and TAT ----
+# OR Demand Analysis by Cohort ----
 
-or_procedure_and_tat_minutes_across_cohorts <- ip_or_data_all_or_cases %>%
-  select(SURGERY_DATE,FACILITY_MSX,OR_CASE_ID,cohort_or,MINUTES_IN_ROOM_TO_OUT_ROOM,TURNOVER_FROM_PRIOR_CASE) %>%
-  mutate(TURNOVER_FROM_PRIOR_CASE = if_else(is.na(TURNOVER_FROM_PRIOR_CASE),0,
-                                            as.numeric(TURNOVER_FROM_PRIOR_CASE)),
-         MINUTES_IN_ROOM_TO_OUT_ROOM = if_else(is.na(MINUTES_IN_ROOM_TO_OUT_ROOM),0,
-                                               as.numeric(MINUTES_IN_ROOM_TO_OUT_ROOM)),
-         procedure_and_tat =  MINUTES_IN_ROOM_TO_OUT_ROOM+TURNOVER_FROM_PRIOR_CASE)
-  
-  
-cat(glue(
-  "DRG only OR Cases : {length(or_cases_drg_only)},{length(or_cases_drg_only)*100/length(or_cases_universe)}\n",
-  "CPT only OR Cases : {length(or_cases_cpt_only)},{length(or_cases_cpt_only)*100/length(or_cases_universe)}\n",
-  "OR Cases Common in DRG and CPT : {length(or_cases_both)},{length(or_cases_both)*100/length(or_cases_universe)}\n",
-  "Unique OR Cases across DRG and CPT : {length(or_cases_universe)}\n",
-  "Total DRG: {length(or_cases_drg)},{length(or_cases_drg)*100/length(or_cases_universe)}\n",
-  "Total CPT: {length(or_cases_cpt)},{length(or_cases_cpt)*100/length(or_cases_universe)}\n"
-))
+procedure_minutes <- ip_or_data_all_or_cases %>%
+  distinct(OR_CASE_ID, MSMRN, ENCOUNTER_NO, .keep_all = TRUE) %>%
+  mutate(
+    PATIENT_IN_ROOM_DTTM  = as.POSIXct(PATIENT_IN_ROOM_DTTM),
+    PATIENT_OUT_ROOM_DTTM = as.POSIXct(PATIENT_OUT_ROOM_DTTM),
+    TURNOVER_FROM_PRIOR_CASE =  if_else(is.na()),
+    procedure_minutes     = as.numeric(difftime(PATIENT_OUT_ROOM_DTTM,
+                                                PATIENT_IN_ROOM_DTTM,
+                                                units = "mins")),
+    surgery_month = lubridate::floor_date(as.Date(PATIENT_IN_ROOM_DTTM), "month")
+  ) %>%
+  filter(procedure_minutes > 0)
+
+monthly_or_demand <- procedure_minutes %>%
+  group_by(surgery_month, cohort_or, FACILITY_MSX) %>%
+  summarise(
+    case_count       = n(),
+    total_or_minutes = sum(procedure_minutes, na.rm = TRUE),
+    avg_or_minutes   = mean(procedure_minutes, na.rm = TRUE),
+    .groups          = "drop"
+  )
+
+p_case_volume <- ggplot(monthly_or_demand,
+                        aes(x = surgery_month, y = case_count,
+                            color = cohort_or, group = cohort_or)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+  labs(
+    title = "Monthly Neurosurgery OR Case Volume by Cohort",
+    x     = "Month", y = "Number of Cases", color = "Cohort"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_proc_minutes <- ggplot(monthly_or_demand,
+                         aes(x = surgery_month, y = avg_or_minutes,
+                             color = cohort, group = cohort)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+  labs(
+    title = "Average Procedure Minutes by Cohort",
+    x     = "Month", y = "Avg OR Minutes", color = "Cohort"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_case_volume)
+print(p_proc_minutes)
+
+cohort_demand_summary <- procedure_minutes %>%
+  group_by(cohort_or, FACILITY_MSX) %>%
+  summarise(
+    total_cases      = n(),
+    total_or_minutes = sum(procedure_minutes, na.rm = TRUE),
+    avg_or_minutes   = round(mean(procedure_minutes, na.rm = TRUE), 1),
+    median_or_min    = round(median(procedure_minutes, na.rm = TRUE), 1),
+    .groups          = "drop"
+  ) %>%
+  arrange(FACILITY_MSX, cohort)
+
+print(cohort_demand_summary)
 

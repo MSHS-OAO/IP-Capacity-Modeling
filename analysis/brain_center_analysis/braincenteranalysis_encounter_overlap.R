@@ -74,17 +74,20 @@ neuro_cpt_query <- paste0("('", paste(neuro_cpt, collapse = "', '"), "')")
 ip_or_query_drg <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.CASE_STATUS = '{status}' AND
-                                    d.MSDRG_CD_SRC IN {neuro_drg_query};")
+                                    d.MSDRG_CD_SRC IN {neuro_drg_query} AND
+                                    d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
 ip_or_query_cpt <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.CASE_STATUS = '{status}' AND
-                                    d.PRIMARY_PROC_CODE IN {neuro_cpt_query};")
+                                    d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
+                                    d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
 
 
 ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
                                                   FROM {ip_or_master_table_name} d 
                                                   WHERE REGEXP_LIKE(SURGEON_SPECIALTY, 'NEURO') AND
-                                                        MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL;")
+                                                        MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL AND
+                                                       d.SURGERY_DATE > TO_DATE('2025-01-01', 'YYYY-MM-DD');")
 
 
 # Establish DB Connection and Get data ----
@@ -96,6 +99,14 @@ ip_or_data_cpt <- dbGetQuery(conn,ip_or_query_cpt)
 ip_or_data_null_cpt_drg_neuro_speciality <- dbGetQuery(conn,ip_or_query_null_cpt_drg_neuro_speciality)
 dbDisconnect(conn)
 
+ip_or_data_null_cpt_drg_neuro_speciality_filtered <- ip_or_data_null_cpt_drg_neuro_speciality %>%
+  select(MSMRN,
+         ENCOUNTER_NO, 
+         OR_CASE_ID, 
+         SURGERY_DATE, 
+         PRINCIPAL_SURGEON_NAME_MSX, 
+         FACILITY_MSX,
+         MSDRG_CD_SRC,PRIMARY_PROC_CODE)
 
 # Group Classification: DRG-only, CPT-only, Both ----
 
@@ -203,10 +214,11 @@ procedure_minutes <- ip_or_data_all_or_cases %>%
   mutate(
     PATIENT_IN_ROOM_DTTM  = as.POSIXct(PATIENT_IN_ROOM_DTTM),
     PATIENT_OUT_ROOM_DTTM = as.POSIXct(PATIENT_OUT_ROOM_DTTM),
-    TURNOVER_FROM_PRIOR_CASE =  if_else(is.na()),
+    TURNOVER_FROM_PRIOR_CASE =  if_else(is.na(TURNOVER_FROM_PRIOR_CASE),0,as.numeric(TURNOVER_FROM_PRIOR_CASE)),
     procedure_minutes     = as.numeric(difftime(PATIENT_OUT_ROOM_DTTM,
                                                 PATIENT_IN_ROOM_DTTM,
                                                 units = "mins")),
+    procedure_and_tat = procedure_minutes+TURNOVER_FROM_PRIOR_CASE,
     surgery_month = lubridate::floor_date(as.Date(PATIENT_IN_ROOM_DTTM), "month")
   ) %>%
   filter(procedure_minutes > 0)
@@ -215,8 +227,8 @@ monthly_or_demand <- procedure_minutes %>%
   group_by(surgery_month, cohort_or, FACILITY_MSX) %>%
   summarise(
     case_count       = n(),
-    total_or_minutes = sum(procedure_minutes, na.rm = TRUE),
-    avg_or_minutes   = mean(procedure_minutes, na.rm = TRUE),
+    total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
+    avg_or_minutes   = mean(procedure_and_tat, na.rm = TRUE),
     .groups          = "drop"
   )
 
@@ -225,6 +237,9 @@ p_case_volume <- ggplot(monthly_or_demand,
                             color = cohort_or, group = cohort_or)) +
   geom_line(linewidth = 0.8) +
   geom_point(size = 1.5) +
+  scale_color_manual(values = c("DRG Only" = "#221F72",
+                                "CPT Only" = "#00AEEF",
+                                "Both"     = "#D80B8C")) +
   facet_wrap(~ FACILITY_MSX, scales = "free_y") +
   labs(
     title = "Monthly Neurosurgery OR Case Volume by Cohort",
@@ -235,12 +250,15 @@ p_case_volume <- ggplot(monthly_or_demand,
 
 p_proc_minutes <- ggplot(monthly_or_demand,
                          aes(x = surgery_month, y = avg_or_minutes,
-                             color = cohort, group = cohort)) +
+                             color = cohort_or, group = cohort_or)) +
   geom_line(linewidth = 0.8) +
   geom_point(size = 1.5) +
   facet_wrap(~ FACILITY_MSX, scales = "free_y") +
+  scale_color_manual(values = c("DRG Only" = "#221F72",
+                                "CPT Only" = "#00AEEF",
+                                "Both"     = "#D80B8C")) +
   labs(
-    title = "Average Procedure Minutes by Cohort",
+    title = "Average Procedure+TAT Minutes by Cohort",
     x     = "Month", y = "Avg OR Minutes", color = "Cohort"
   ) +
   theme_minimal() +
@@ -248,17 +266,18 @@ p_proc_minutes <- ggplot(monthly_or_demand,
 
 print(p_case_volume)
 print(p_proc_minutes)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/CaseVolume.png"),
+       p_case_volume)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/ProcedureTatMinutes.png"),
+       p_proc_minutes)
 
 cohort_demand_summary <- procedure_minutes %>%
   group_by(cohort_or, FACILITY_MSX) %>%
   summarise(
     total_cases      = n(),
-    total_or_minutes = sum(procedure_minutes, na.rm = TRUE),
-    avg_or_minutes   = round(mean(procedure_minutes, na.rm = TRUE), 1),
-    median_or_min    = round(median(procedure_minutes, na.rm = TRUE), 1),
+    total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
+    avg_or_minutes   = round(mean(procedure_and_tat, na.rm = TRUE), 1),
+    median_or_min    = round(median(procedure_and_tat, na.rm = TRUE), 1),
     .groups          = "drop"
   ) %>%
-  arrange(FACILITY_MSX, cohort)
-
-print(cohort_demand_summary)
-
+  arrange(FACILITY_MSX, cohort_or)

@@ -48,6 +48,7 @@ cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optim
 
 # --------------------- Table Names ---------------------
 ip_or_master_table_name <- 'IPCAP_OR_CASE_DATA'
+or_case_details_table_name <- 'MS_INSIGHT.OR_QUALITY_DASHBOARD_CASE_DETAILS'
 
 # --------------------- Filters ---------------------
 # current_date <- Sys.Date()
@@ -69,6 +70,11 @@ neuro_cpt <- neuro_codes_cpt$`CPT Code`
 neuro_cpt_query <- paste0("('", paste(neuro_cpt, collapse = "', '"), "')")
 
 
+neuro_codes_npi <- read_xlsx(paste0(cap_dir,"Adhoc/MS Brain Health/Mappings/","Faculty and NPI.xlsx")) 
+neuro_codes_npi <- trimws(neuro_codes_npi$NPI)
+neuro_npi_query <- paste0("('", paste(neuro_codes_npi, collapse = "', '"), "')")
+
+
 
 # query to capture combining IP and OR data ----
 ip_or_query_drg <- glue("SELECT *
@@ -81,11 +87,33 @@ ip_or_query_cpt <- glue("SELECT *
                                     d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
 
 
-ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
-                                                  FROM {ip_or_master_table_name} d 
-                                                  WHERE REGEXP_LIKE(SURGEON_SPECIALTY, 'NEURO') AND
-                                                        MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL AND
-                                                        d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+ip_or_query_npi <- glue("SELECT *
+                              FROM {ip_or_master_table_name} d 
+                              WHERE d.SURGEON_NPI IN {neuro_npi_query} AND
+                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+
+
+
+or_case_details_cpt <- glue("SELECT *
+                              FROM {or_case_details_table_name} d 
+                              WHERE d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
+                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM');")
+
+or_case_details_npi <- glue("SELECT *
+                              FROM {or_case_details_table_name} d 
+                              WHERE d.SURGEON_NPI IN {neuro_npi_query} AND
+                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM');")
+
+
+# ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
+#                                                   FROM {ip_or_master_table_name} d 
+#                                                   WHERE REGEXP_LIKE(SURGEON_SPECIALTY, 'NEURO') AND
+#                                                         MSDRG_CD_SRC IS NULL AND PRIMARY_PROC_CODE IS NULL AND
+#                                                         d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+
+
+
+
 
 
 # Establish DB Connection and Get data ----
@@ -94,17 +122,20 @@ conn <- dbConnect(odbc(), dsn)
 dbExecute(conn, "ALTER SESSION SET TIME_ZONE = 'America/New_York'")
 ip_or_data_drg <- dbGetQuery(conn,ip_or_query_drg)
 ip_or_data_cpt <- dbGetQuery(conn,ip_or_query_cpt)
-ip_or_data_null_cpt_drg_neuro_speciality <- dbGetQuery(conn,ip_or_query_null_cpt_drg_neuro_speciality)
+ip_or_data_npi <- dbGetQuery(conn,ip_or_query_npi)
+or_case_details_cpt_data <- dbGetQuery(conn,or_case_details_cpt)
+or_case_details_npi_data <- dbGetQuery(conn,or_case_details_npi)
+# ip_or_data_null_cpt_drg_neuro_speciality <- dbGetQuery(conn,ip_or_query_null_cpt_drg_neuro_speciality)
 dbDisconnect(conn)
 
-ip_or_data_null_cpt_drg_neuro_speciality_filtered <- ip_or_data_null_cpt_drg_neuro_speciality %>%
-  select(MSMRN,
-         ENCOUNTER_NO, 
-         OR_CASE_ID, 
-         SURGERY_DATE, 
-         PRINCIPAL_SURGEON_NAME_MSX, 
-         FACILITY_MSX,
-         MSDRG_CD_SRC,PRIMARY_PROC_CODE)
+# ip_or_data_null_cpt_drg_neuro_speciality_filtered <- ip_or_data_null_cpt_drg_neuro_speciality %>%
+#   select(MSMRN,
+#          ENCOUNTER_NO, 
+#          OR_CASE_ID, 
+#          SURGERY_DATE, 
+#          PRINCIPAL_SURGEON_NAME_MSX, 
+#          FACILITY_MSX,
+#          MSDRG_CD_SRC,PRIMARY_PROC_CODE)
 
 # Group Classification: DRG-only, CPT-only, Both ----
 
@@ -160,6 +191,7 @@ ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/venn_drg_cpt_overlap.png"),
 
 or_cases_drg <- unique(ip_or_data_drg$OR_CASE_ID)
 or_cases_cpt <- unique(ip_or_data_cpt$OR_CASE_ID)
+or_cases_npi <- unique(ip_or_data_cpt$OR_CASE_ID)
 
 
 or_cases_both     <- intersect(or_cases_drg, or_cases_cpt)

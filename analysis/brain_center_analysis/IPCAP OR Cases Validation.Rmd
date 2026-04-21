@@ -1,0 +1,73 @@
+---
+title: "IPCAP OR Case Validation"
+author: "Greg Lenane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(tidyverse)
+library(odbc)
+library(DBI)
+library(glue)
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(scales)
+library(openxlsx)
+library(readxl)
+library(rmarkdown)
+library(tsibble)
+library(fable)
+
+# OAO_PRODUCTION DB connection
+con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
+```
+
+## Data Pull
+```{r data pull}
+# OR 
+dashboard_or <- tbl(con_prod, in_schema("MS_INSIGHT", "OR_QUALITY_DASHBOARD_CASE_DETAILS")) %>%
+  collect() %>%
+  filter(
+    (as.Date(HOSP_ADMSN_TIME) >= as.Date("2025-01-01") & as.Date(HOSP_ADMSN_TIME) <= as.Date("2025-12-31")) |
+      (as.Date(HOSP_DISCH_TIME) >= as.Date("2025-01-01") & as.Date(HOSP_DISCH_TIME) <= as.Date("2025-12-31")))
+
+# read in all IP or cases 
+ipcap_or <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
+  collect()
+
+ipcap_proc <- tbl(con_prod, "IPCAP_PROCEDURE_DATA") %>%
+  collect()
+```
+
+## Encounters Without OR Cases
+```{r join check}
+# check nulls in ipcap_or. This will show us all the failed joins for review
+failed_joins <- ipcap_or %>% filter(is.na(SURGERY_DATE))
+
+# print percentage of encounters without an OR case
+print(paste0(
+  round(length(unique(failed_joins$ENCOUNTER_NO))/length(unique(ipcap_or$ENCOUNTER_NO)) * 100, digits = 2),
+  "% of encounters have no OR cases associated with it"))
+```
+
+## IPCAP_PROCEDURE_DATAC Cross Reference
+```{r ipcap_procedure_data check}
+# look for the encounters of failed joins in IPCAP_PROCEDURE_DATA
+ipcap_proc_check <- ipcap_proc %>%
+  filter(ENCOUNTER_NO %in% failed_joins$ENCOUNTER_NO,
+         !is.na(SEC_PROC_CD)) %>%
+  group_by(SEC_PROC_CD,
+           SHORT_DESCRIPTION) %>%
+  summarise(proc_count = n()) %>%
+  arrange(desc(proc_count))
+
+# we can that these procs are procedures that do not require an OR
+```

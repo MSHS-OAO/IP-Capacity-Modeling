@@ -370,15 +370,26 @@ procedure_minutes <- ip_or_data_all_or_cases %>%
          as.Date(PATIENT_IN_ROOM_DTTM) >= as.Date('2025-01-01'),
          as.Date(PATIENT_IN_ROOM_DTTM) <= as.Date('2025-12-31'))
 
-hourly_or_demand <- procedure_minutes %>%
+hourly_or_demand_volume <- procedure_minutes %>%
   group_by(surgery_hour) %>%
   summarise(
     case_count       = n(),
-    avg_case_count_hour   = case_count/352,
+    # avg_case_count_hour   = case_count/352,
     # total_or_minutes = sum(procedure_and_tat, na.rm = TRUE),
     # avg_or_minutes   = mean(procedure_and_tat, na.rm = TRUE),
     .groups          = "drop"
-  ) 
+  ) %>%
+  mutate(
+    hour_bins = cut(
+      surgery_hour,
+      breaks = c(-1, 6, 7:20, 23),
+      labels = c("0-6", as.character(7:20), "21-23"),
+      right  = TRUE
+    )
+  ) %>%
+  group_by(hour_bins) %>%
+  summarise(case_count = sum(case_count))
+
 
 hourly <- ip_or_data_all_or_cases %>%
   filter(!is.na(PATIENT_IN_ROOM_DTTM), !is.na(PATIENT_OUT_ROOM_DTTM)) %>%
@@ -415,7 +426,7 @@ hourly_mean_minutes <- hourly %>%
   group_by(surgery_hour) %>%
   summarise(avg_or_minutes = mean(minutes_in_hour))
 
-hourly_mean_volume <- hourly %>%
+hourly_mean_rooms <- hourly %>%
   filter(as.Date(SURGERY_DATE) >= as.Date('2025-01-01'),
          as.Date(SURGERY_DATE) <= as.Date('2025-12-31')) %>%
   distinct(SURGERY_DATE,OR_CASE_ID,surgery_hour) %>%
@@ -425,10 +436,13 @@ hourly_mean_volume <- hourly %>%
   mutate(
     hour_bins = cut(
       surgery_hour,
-      breaks = c(0, 7, seq(8:20)+7, 21, Inf), 
-      labels = c("0-7", "8","9","10","11","12","13","14","15","16","17","18","19","20","21","21-24")
+      breaks = c(-1, 6, 7:20, 23),
+      labels = c("0-6", as.character(7:20), "21-23"),
+      right  = TRUE
     )
-  )
+  ) %>%
+  group_by(hour_bins) %>%
+  summarise(avg_or_rooms = sum(avg_or_cases))
 
 
 daily_or_demand <- procedure_minutes %>%
@@ -496,28 +510,29 @@ ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/or_demand_monthly_combined.
 
 
 
-p1 <- ggplot(hourly_or_demand, aes(x = surgery_hour, y = case_count)) +
+p1 <- ggplot(hourly_or_demand_volume, aes(x = hour_bins, y = case_count)) +
   geom_col(fill = mshs_colors[1], width = 0.8) +
-  labs(title = "Total Case Count by Hour", x = "Surgery Hour", y = "Cases") +
-  scale_x_continuous(breaks = seq(0:23)-1,
+  labs(title = "Total Case Count by Hour", x = "Surgery Start Hour", y = "Cases") +
+  geom_text(aes(label = round(case_count,1), vjust = -0.5)) +
+  scale_x_discrete(breaks = unique(hourly_or_demand_volume$hour_bins),
                      expand = expansion(mult = 0.01) )+
   mshs_theme +
   theme(
-    axis.text.x = element_text(angle = 0, hjust = 1)
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
   )
 
 print(p1)
 
 
-p2 <- ggplot(hourly_mean_volume, aes(x = hour_bins, y = avg_or_cases)) +
-  geom_col(fill = mshs_colors[2], width = 0.8) +
-  labs(title = "Avg Room Demand/Hour", x = "Surgery Hour", y = "Cases") +
-  geom_text(aes(label = round(avg_or_cases,1), vjust = -0.5)) +
-  scale_x_discrete(breaks = unique(hourly_mean_volume$hour_bins),
+p2 <- ggplot(hourly_mean_rooms, aes(x = hour_bins, y = avg_or_rooms)) +
+  geom_col(fill = mshs_colors[1], width = 0.8) +
+  labs(title = "Avg Room Demand/Hour", x = "Surgery Hour", y = "Rooms") +
+  geom_text(aes(label = round(avg_or_rooms,1), vjust = -0.5)) +
+  scale_x_discrete(breaks = unique(hourly_mean_rooms$hour_bins),
                      expand = expansion(mult = 0.01) )+
   mshs_theme +
   theme(
-    axis.text.x = element_text(angle = 0, hjust = 1)
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
   )
 
 print(p2)

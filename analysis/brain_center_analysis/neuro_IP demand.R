@@ -24,19 +24,21 @@ con_prod <- dbConnect(odbc(), "OAO Cloud DB Production")
 # capacity modeling path
 cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
 
-
-# ---------------------------------- DRG Patient Identification --------------------------------
 # read in neuro codes and isolate DRGs
-neuro_drg <- read_csv("Neurosurgery DRG.csv") 
+neuro_drg <- read_csv(paste0(cap_dir,"Adhoc/MS Brain Health/Mappings/","Neurosurgery DRG.csv")) 
 neuro_drg_codes <- neuro_drg$`MS-DRG`
 
-neuro_cpt <- read_csv("Neurosurgery CPT.csv")
+neuro_cpt <- read_csv(paste0(cap_dir,"Adhoc/MS Brain Health/Mappings/","Neurosurgery CPT.csv"))
 neuro_cpt_codes <- as.character(neuro_cpt$`CPT Code`)
 
+neuro_npi <- read_xlsx(paste0(cap_dir,"Adhoc/MS Brain Health/Mappings/","Faculty and NPI.xlsx")) 
+neuro_npi_codes <- trimws(neuro_npi$NPI)
+
+# ---------------------------------- DRG Patient Identification --------------------------------
 # read in all bedcharges for neuro DRGs for MSH, MSM, MSW
 neuro_ip_encounters <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>% 
   filter(FACILITY_MSX %in% c("MSH", "RVT", "STL"),
-         MSDRG_CD_SRC %in% neuro_drg_codes) %>%
+         MSDRG_CD_SRC %in% neuro_drg_codes)  %>%
   collect() 
 
 # isolate the neuro encounters
@@ -51,18 +53,26 @@ neuro_or_cases <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
 # isolate the neuro encounters
 neuro_encounters_cpt <- unique(neuro_or_cases$ENCOUNTER_NO)
 
-# ------------------------------- compare encounter lists ---------------------
-# encounters found with cpt but not with drg
-cpt_not_drg <- setdiff(neuro_encounters_cpt, neuro_encounters_drg)
-# encounters found with drg but not with cpt
-drg_not_cpt <- setdiff(neuro_encounters_drg, neuro_encounters_cpt)
+# ---------------------------------- CPT Patient Identification --------------------------------
+neuro_surgeon_cases <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
+  filter(FACILITY_MSX %in% c("MSH", "RVT", "STL"),
+         SURGEON_NPI %in% neuro_npi_codes) %>%
+  collect()
 
-# encounters found with both drg and cpt
-cpt_and_drg <- intersect(neuro_encounters_cpt, neuro_encounters_drg)
+# isolate the neuro encounters
+neuro_encounters_npi <- unique(neuro_surgeon_cases$ENCOUNTER_NO)
+
+# ------------------------------- compare encounter lists ---------------------
+# # encounters found with cpt but not with drg
+# cpt_not_drg <- setdiff(neuro_encounters_cpt, neuro_encounters_drg)
+# # encounters found with drg but not with cpt
+# drg_not_cpt <- setdiff(neuro_encounters_drg, neuro_encounters_cpt)
+# 
+# # encounters found with both drg and cpt
+# cpt_and_drg <- intersect(neuro_encounters_cpt, neuro_encounters_drg)
 
 # all unique encounters identified with drg or cpt
-all_neuro_encounters <- unique(union(neuro_encounters_cpt, neuro_encounters_drg))
-
+all_neuro_encounters <- unique(c(neuro_encounters_cpt, neuro_encounters_drg, neuro_encounters_npi))
 # ------------------------ Bed Demand -----------------------------------------
 
 ### ASSUMPTION: use all encounters identified with either cpt or drg ##########
@@ -141,46 +151,3 @@ bed_demand <- neuro_bed_charges %>%
   mutate(TOTAL_ENCOUNTERS = if_else(SERVICE_GROUP == "Total",
                                     length(unique(neuro_bed_charges$ENCOUNTER_NO)),
                                     TOTAL_ENCOUNTERS))
-
-### qc #######################################################################
-
-#study population with cpt match and drg mismatch
-cpt_match_drg_mismatch <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
-  collect() %>%
-  filter(
-    PRIMARY_PROC_CODE %in% neuro_cpt_codes &
-      (
-        is.na(MSDRG_CD_SRC) | 
-          MSDRG_CD_SRC == "" | 
-          !(MSDRG_CD_SRC %in% neuro_drg_codes)
-      ) &
-      FACILITY_MSX %in% c("MSH", "RVT", "STL")
-  ) %>%
-  count(
-    MATCHED_CPT = PRIMARY_PROC_CODE, 
-    MISMATCHED_DRG = MSDRG_CD_SRC, 
-    MSDRG_DESC_MSX,
-    sort = TRUE, 
-    name = "NUM_OF_PROCEDURES"
-  ) %>%
-  filter(!is.na(MISMATCHED_DRG))
-
-#study population with drg match and cpt mismatch
-drg_match_cpt_mismatch <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
-  collect() %>%
-  filter(
-    MSDRG_CD_SRC %in% neuro_drg_codes &
-      (
-        is.na(PRIMARY_PROC_CODE) |
-          PRIMARY_PROC_CODE == "" |
-          !(PRIMARY_PROC_CODE %in% neuro_cpt_codes)
-      ) &
-      FACILITY_MSX %in% c("MSH", "RVT", "STL")
-  ) %>%
-  select(MSDRG_CD_SRC, MSDRG_DESC_MSX, PRIMARY_PROC_CODE, PRIMARY_PROCEDURE) %>%
-  count(MSDRG_CD_SRC, MSDRG_DESC_MSX, PRIMARY_PROC_CODE, PRIMARY_PROCEDURE, sort = TRUE, name = "NUM_OF_PROCEDURES") %>%
-  rename(
-    MATCHED_DRG = MSDRG_CD_SRC,
-    MISMATCHED_CPT = PRIMARY_PROC_CODE
-  ) %>%
-  filter(!is.na(MISMATCHED_CPT))        

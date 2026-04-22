@@ -93,6 +93,7 @@ df <- or_baseline %>%
   filter(
     PRIMARY_PROC_CODE %in% cpt_list | SURGEON_NPI %in% npi_list
   ) %>%
+  distinct(PAT_MRN_ID, .keep_all = TRUE) %>%
   mutate(
     PAT_DOB = as.Date(PAT_DOB),
     SURGERY_DATE = as.Date(SURGERY_DATE),

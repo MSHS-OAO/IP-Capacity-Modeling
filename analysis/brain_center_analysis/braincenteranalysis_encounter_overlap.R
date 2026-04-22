@@ -37,7 +37,7 @@ library(VennDiagram)
 
 
 
-# --------------------- source functions and constants ---------------------
+# --------------------- Source functions and Constants ---------------------
 # capacity modeling path
 cap_dir <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
 mshs_colors <- c("#221F72", "#00AEFF", "#D80B8C", "#7F7F7F", "#000000", 
@@ -195,7 +195,7 @@ dbDisconnect(conn)
 #        venn_plot, width = 8, height = 6, dpi = 150)
 
 
-# ---- OR Volume Analysis by Cohort ----
+# ---- OR Volume Analysis ----
 
 or_cases_drg_ip <- unique(ip_or_data_drg$OR_CASE_ID)
 or_cases_cpt_ip <- unique(ip_or_data_cpt$OR_CASE_ID)
@@ -284,6 +284,8 @@ venn.diagram(
   
   margin = 0.15
 )
+
+# print(venn.diagram)
 
 or_cases_universe <- union(
   union(

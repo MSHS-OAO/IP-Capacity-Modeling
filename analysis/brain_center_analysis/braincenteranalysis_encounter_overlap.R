@@ -405,7 +405,8 @@ hourly <- ip_or_data_all_or_cases %>%
     ),
     surgery_hour = hour(hour_bucket)
   ) %>%
-  select(MSMRN, OR_CASE_ID, SURGERY_DATE, surgery_hour, hour_bucket, minutes_in_hour)
+  select(MSMRN, OR_CASE_ID, SURGERY_DATE, surgery_hour, hour_bucket, minutes_in_hour) %>%
+  distinct()
 
 
 hourly_mean_minutes <- hourly %>%
@@ -419,7 +420,15 @@ hourly_mean_volume <- hourly %>%
          as.Date(SURGERY_DATE) <= as.Date('2025-12-31')) %>%
   distinct(SURGERY_DATE,OR_CASE_ID,surgery_hour) %>%
   group_by(surgery_hour) %>%
-  summarise(avg_or_cases = n_distinct(OR_CASE_ID)/352)
+  summarise(avg_or_cases = n_distinct(OR_CASE_ID)/352) %>%
+  ungroup() %>%
+  mutate(
+    hour_bins = cut(
+      surgery_hour,
+      breaks = c(0, 7, seq(8:20)+7, 21, Inf), 
+      labels = c("0-7", "8","9","10","11","12","13","14","15","16","17","18","19","20","21","21-24")
+    )
+  )
 
 
 daily_or_demand <- procedure_minutes %>%
@@ -448,7 +457,7 @@ scale_factor <- max(monthly_or_demand$case_count, na.rm = TRUE) /
   max(monthly_or_demand$avg_or_minutes, na.rm = TRUE)
 
 p_combined <- ggplot(monthly_or_demand, aes(x = surgery_month)) +
-  geom_col(aes(y = avg_or_minutes * scale_factor, fill = "Avg OR Minutes/Case (Procedure + TAT)"),
+  geom_col(aes(y = avg_or_minutes * scale_factor, fill = "Avg OR Min/Case (Procedure + TAT)"),
            alpha = 0.6) +
   geom_line(aes(y = case_count, color = "Total Case Volume"),
             linewidth = 1) +
@@ -456,19 +465,22 @@ p_combined <- ggplot(monthly_or_demand, aes(x = surgery_month)) +
              size = 2) +
   # scale_color_manual(values = mshs_colors)+
   scale_color_manual(name = "", values = c("Total Case Volume"    = "#221F72")) +
-  scale_fill_manual(name  = "", values = c("Avg OR Minutes/Case (Procedure + TAT)" = "#00AEEF")) +
+  scale_fill_manual(name  = "", values = c("Avg OR Min/Case (Procedure + TAT)" = "#00AEEF")) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
   scale_y_continuous(
     name     = "Total Case Volume",
-    sec.axis = sec_axis(~ . / scale_factor, name = "Avg OR Minutes/Case (Procedure + TAT)")
+    sec.axis = sec_axis(~ . / scale_factor, name = "Avg OR Min/Case (Procedure + TAT)")
   ) +
   labs(
-    title = "Monthly Neurosurgery OR Demand - Case Volume and Avg OR Minutes/Case",
+    title = "Monthly Neurosurgery OR Demand - Case Volume and Avg OR Min/Case",
     x     = "Month"
   ) +
   guides(color = guide_legend(order = 1),
          fill  = guide_legend(order = 2)) +
-  mshs_theme 
+  mshs_theme +
+  theme(
+    legend.position = "bottom"
+  )
 
 
 print(p_combined)
@@ -497,11 +509,11 @@ p1 <- ggplot(hourly_or_demand, aes(x = surgery_hour, y = case_count)) +
 print(p1)
 
 
-p2 <- ggplot(hourly_or_demand, aes(x = surgery_hour, y = avg_case_count_hour)) +
+p2 <- ggplot(hourly_mean_volume, aes(x = hour_bins, y = avg_or_cases)) +
   geom_col(fill = mshs_colors[2], width = 0.8) +
-  labs(title = "Avg Number of Cases/Hour", x = "Surgery Hour", y = "Cases") +
-  geom_text(aes(label = round(avg_case_count_hour,2), vjust = -0.5)) +
-  scale_x_continuous(breaks = c(0,6,seq(0:23)+6),
+  labs(title = "Avg Room Demand/Hour", x = "Surgery Hour", y = "Cases") +
+  geom_text(aes(label = round(avg_or_cases,1), vjust = -0.5)) +
+  scale_x_discrete(breaks = unique(hourly_mean_volume$hour_bins),
                      expand = expansion(mult = 0.01) )+
   mshs_theme +
   theme(

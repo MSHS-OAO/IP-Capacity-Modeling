@@ -281,8 +281,8 @@ venn.diagram(
   cat.cex = 0.8,
   cat.fontface = "bold",
   cat.default.pos = "outer",
-  cat.pos = c(0, 0,0, 0),
-  cat.dist = c(0.22, 0.22, 0.22, 0.22),
+  # cat.pos = c(-10, -10,-10, -10),
+  # cat.dist = c(0.22, 0.22, 0.22, 0.22),
   cat.fontfamily = "sans",
   
   # rotation = 1 is only valid for 3-set diagrams; drop it or use rotation.degree

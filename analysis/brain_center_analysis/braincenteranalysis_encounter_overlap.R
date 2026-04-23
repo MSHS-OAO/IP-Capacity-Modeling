@@ -60,8 +60,8 @@ or_case_details_table_name <- 'MS_INSIGHT.OR_QUALITY_DASHBOARD_CASE_DETAILS'
 # --------------------- Filters ---------------------
 # current_date <- Sys.Date()
 # sched_date <- '2024-09-01'
-# sched_start_date <- '2025-01-01'
-# sched_end_date <- '2026-03-31'
+sched_start_date <- '2025-01-01'
+sched_end_date <- '2025-12-31'
 status <- 'Completed'
 # facilities <- "('MSH','RVT','STL')"
 # room_exclusion_list <- "('MSW OR 23','MSM OR 08','MSM OR 15')"
@@ -84,32 +84,38 @@ neuro_npi_query <- paste0("('", paste(neuro_codes_npi, collapse = "', '"), "')")
 
 
 # --------------------- Queries ---------------------
-ip_or_query_drg <- glue("SELECT *
-                              FROM {ip_or_master_table_name} d 
-                              WHERE d.MSDRG_CD_SRC IN {neuro_drg_query} AND
-                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+# ip_or_query_drg <- glue("SELECT *
+#                               FROM {ip_or_master_table_name} d 
+#                               WHERE d.MSDRG_CD_SRC IN {neuro_drg_query} AND
+#                                     d.FACILITY_MSX  in ('RVT', 'MSH', 'STL') AND
+#                                     d.SURGERY_DATE BETWEEN TO_DATE('{sched_start_date}','YYYY-MM-DD') AND TO_DATE('{sched_end_date}','YYYY-MM-DD');")
+
 ip_or_query_cpt <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
-                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL')AND
+                                    d.SURGERY_DATE BETWEEN TO_DATE('{sched_start_date}','YYYY-MM-DD') AND TO_DATE('{sched_end_date}','YYYY-MM-DD');")
 
 
 ip_or_query_npi <- glue("SELECT *
                               FROM {ip_or_master_table_name} d 
                               WHERE d.SURGEON_NPI IN {neuro_npi_query} AND
-                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL');")
+                                    d.FACILITY_MSX  in ('RVT', 'MSH', 'STL')AND
+                                    d.SURGERY_DATE BETWEEN TO_DATE('{sched_start_date}','YYYY-MM-DD') AND TO_DATE('{sched_end_date}','YYYY-MM-DD');")
 
 
 
 or_case_details_cpt <- glue("SELECT *
                               FROM {or_case_details_table_name} d 
                               WHERE d.PRIMARY_PROC_CODE IN {neuro_cpt_query} AND
-                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM');")
+                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM') AND
+                                    d.SURGERY_DATE BETWEEN TO_DATE('{sched_start_date}','YYYY-MM-DD') AND TO_DATE('{sched_end_date}','YYYY-MM-DD');")
 
 or_case_details_npi <- glue("SELECT *
                               FROM {or_case_details_table_name} d 
                               WHERE d.SURGEON_NPI IN {neuro_npi_query} AND
-                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM');")
+                                    d.HOSPITAL  in ('MSW', 'MSH', 'MSM') AND
+                                    d.SURGERY_DATE BETWEEN TO_DATE('{sched_start_date}','YYYY-MM-DD') AND TO_DATE('{sched_end_date}','YYYY-MM-DD');")
 
 
 # ip_or_query_null_cpt_drg_neuro_speciality <- glue("SELECT *
@@ -127,8 +133,8 @@ or_case_details_npi <- glue("SELECT *
 dsn <- "OAO Cloud DB Production"
 conn <- dbConnect(odbc(), dsn)
 dbExecute(conn, "ALTER SESSION SET TIME_ZONE = 'America/New_York'")
-ip_or_data_drg <- dbGetQuery(conn,ip_or_query_drg) %>%
-  filter(!is.na(OR_CASE_ID))
+# ip_or_data_drg <- dbGetQuery(conn,ip_or_query_drg) %>%
+#   filter(!is.na(OR_CASE_ID))
 ip_or_data_cpt <- dbGetQuery(conn,ip_or_query_cpt)
 ip_or_data_npi <- dbGetQuery(conn,ip_or_query_npi)
 or_case_details_cpt_data <- dbGetQuery(conn,or_case_details_cpt)
@@ -197,7 +203,7 @@ dbDisconnect(conn)
 
 # ---- OR Volume Analysis ----
 
-or_cases_drg_ip <- unique(ip_or_data_drg$OR_CASE_ID)
+# or_cases_drg_ip <- unique(ip_or_data_drg$OR_CASE_ID)
 or_cases_cpt_ip <- unique(ip_or_data_cpt$OR_CASE_ID)
 or_cases_npi_ip <- unique(ip_or_data_npi$OR_CASE_ID)
 or_cases_npi_ordata <- unique(or_case_details_npi_data$OR_CASE_ID)
@@ -239,14 +245,14 @@ or_cases_cpt_ordata <- unique(or_case_details_cpt_data$OR_CASE_ID)
 
 
 venn_list <- list(
-  orcases_using_drg_ip = or_cases_drg_ip,
+  # orcases_using_drg_ip = or_cases_drg_ip,
   orcases_using_cpt_ip = or_cases_cpt_ip,
   orcases_using_npi_ip = or_cases_npi_ip,
   orcases_using_npi_or = or_cases_npi_ordata,
   orcases_using_cpt_or = or_cases_cpt_ordata
 )
 
-myCol <- mshs_colors[6:10]
+myCol <- mshs_colors[7:10]
 
 venn.diagram(
   x = venn_list,
@@ -275,8 +281,8 @@ venn.diagram(
   cat.cex = 0.8,
   cat.fontface = "bold",
   cat.default.pos = "outer",
-  cat.pos = c(0, -40, -150, 150, 40),
-  cat.dist = c(0.22, 0.22, 0.22, 0.22, 0.22),
+  cat.pos = c(0, 0,0, 0),
+  cat.dist = c(0.22, 0.22, 0.22, 0.22),
   cat.fontfamily = "sans",
   
   # rotation = 1 is only valid for 3-set diagrams; drop it or use rotation.degree
@@ -287,68 +293,96 @@ venn.diagram(
 
 # print(venn.diagram)
 
-or_cases_universe <- union(
-  union(
-    union(
-      union(or_cases_drg_ip,
-            or_cases_cpt_ip),
-      or_cases_npi_ip),
-    or_cases_npi_ordata),
-  or_cases_cpt_ordata)
+# or_cases_universe <- union(
+#   union(
+#     union(
+#       union(or_cases_drg_ip,
+#             or_cases_cpt_ip),
+#       or_cases_npi_ip),
+#     or_cases_npi_ordata),
+#   or_cases_cpt_ordata)
 
 
+or_cases_universe <- unique(c(or_cases_cpt_ip,or_cases_npi_ip,or_cases_npi_ordata,or_cases_cpt_ordata))
 
 # ----- Select relevant columns and combine all datasets -----
 
-ip_or_data_cpt <- ip_or_data_cpt %>%
-  select(MSMRN,
-         OR_CASE_ID,
-         SURGERY_DATE,
-         PATIENT_IN_ROOM_DTTM,
-         PATIENT_OUT_ROOM_DTTM,
-         TURNOVER_FROM_PRIOR_CASE)
+# ip_or_data_cpt <- ip_or_data_cpt %>%
+#   select(MSMRN,
+#          OR_CASE_ID,
+#          SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM,
+#          TURNOVER_FROM_PRIOR_CASE,
+#          HOSPITAL)
 
 
-ip_or_data_drg <- ip_or_data_drg %>%
-  select(MSMRN,
-         OR_CASE_ID,
-         SURGERY_DATE,
-         PATIENT_IN_ROOM_DTTM,
-         PATIENT_OUT_ROOM_DTTM,
-         TURNOVER_FROM_PRIOR_CASE)
+# ip_or_data_drg <- ip_or_data_drg %>%
+#   select(MSMRN,
+#          OR_CASE_ID,
+#          SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM,
+#          TURNOVER_FROM_PRIOR_CASE)
 
-ip_or_data_npi <- ip_or_data_npi %>%
-  select(MSMRN,
-         OR_CASE_ID,
-         SURGERY_DATE,
-         PATIENT_IN_ROOM_DTTM,
-         PATIENT_OUT_ROOM_DTTM,
-         TURNOVER_FROM_PRIOR_CASE)
+# ip_or_data_npi <- ip_or_data_npi %>%
+#   select(MSMRN,
+#          OR_CASE_ID,
+#          SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM,
+#          TURNOVER_FROM_PRIOR_CASE,
+#          HOSPITAL)
 
-or_case_details_cpt_data <- or_case_details_cpt_data %>%
-  select(PAT_MRN_ID,
-         OR_CASE_ID,
-         SURGERY_DATE,
-         PATIENT_IN_ROOM_DTTM,
-         PATIENT_OUT_ROOM_DTTM,
-         TURNOVER_FROM_PRIOR_CASE) %>%
-  rename(MSMRN = PAT_MRN_ID) 
+# or_case_details_cpt_data <- or_case_details_cpt_data %>%
+#   select(PAT_MRN_ID,
+#          OR_CASE_ID,
+#          SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM,
+#          TURNOVER_FROM_PRIOR_CASE,
+#          HOSPITAL) %>%
+#   rename(MSMRN = PAT_MRN_ID) 
+# 
+# or_case_details_npi_data <- or_case_details_npi_data %>%
+#   select(PAT_MRN_ID,
+#          OR_CASE_ID,
+#          SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM,
+#          TURNOVER_FROM_PRIOR_CASE,
+#          HOSPITAL) %>%
+#   rename(MSMRN = PAT_MRN_ID)
+# 
+# ip_or_data_all_or_cases <- rbind(ip_or_data_cpt,
+#                                  ip_or_data_drg,
+#                                  ip_or_data_npi,
+#                                  or_case_details_cpt_data,
+#                                  or_case_details_npi_data)
 
-or_case_details_npi_data <- or_case_details_npi_data %>%
-  select(PAT_MRN_ID,
-         OR_CASE_ID,
-         SURGERY_DATE,
-         PATIENT_IN_ROOM_DTTM,
-         PATIENT_OUT_ROOM_DTTM,
-         TURNOVER_FROM_PRIOR_CASE) %>%
+or_cases_universe_query <- paste0("('", paste(or_cases_universe, collapse = "', '"), "')")
+
+ip_or_data_all_or_cases <- glue("SELECT PAT_MRN_ID,
+                                        OR_CASE_ID,
+                                       SURGERY_DATE,
+                                       PATIENT_IN_ROOM_DTTM,
+                                       PATIENT_OUT_ROOM_DTTM,
+                                       TURNOVER_FROM_PRIOR_CASE,
+                                       HOSPITAL
+                              FROM {or_case_details_table_name} d 
+                              WHERE d.OR_CASE_ID IN {or_cases_universe_query};")
+
+dsn <- "OAO Cloud DB Production"
+conn <- dbConnect(odbc(), dsn)
+dbExecute(conn, "ALTER SESSION SET TIME_ZONE = 'America/New_York'")
+# ip_or_data_drg <- dbGetQuery(conn,ip_or_query_drg) %>%
+#   filter(!is.na(OR_CASE_ID))
+ip_or_data_all_or_cases <- dbGetQuery(conn,ip_or_data_all_or_cases)
+# ip_or_data_null_cpt_drg_neuro_speciality <- dbGetQuery(conn,ip_or_query_null_cpt_drg_neuro_speciality)
+dbDisconnect(conn)
+
+ip_or_data_all_or_cases <- ip_or_data_all_or_cases %>%
   rename(MSMRN = PAT_MRN_ID)
-
-ip_or_data_all_or_cases <- rbind(ip_or_data_cpt,
-                                 ip_or_data_drg,
-                                 ip_or_data_npi,
-                                 or_case_details_cpt_data,
-                                 or_case_details_npi_data)
-
 
 # ---- OR Demand Analysis Data ----
 
@@ -473,7 +507,7 @@ scale_factor <- max(monthly_or_demand$case_count, na.rm = TRUE) /
 p_combined <- ggplot(monthly_or_demand, aes(x = surgery_month)) +
   geom_col(aes(y = avg_or_minutes * scale_factor, fill = "Avg OR Min/Case (Procedure + TAT)"),
            alpha = 0.6) +
-  geom_line(aes(y = case_count, color = "Total Case Volume"),
+  geom_line(aes(y = case_count, color = "Total Case Volume",label = round(case_count,1), vjust = -0.5),
             linewidth = 1) +
   geom_point(aes(y = case_count, color = "Total Case Volume"),
              size = 2) +
@@ -499,7 +533,7 @@ p_combined <- ggplot(monthly_or_demand, aes(x = surgery_month)) +
 
 print(p_combined)
 
-ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/or_demand_monthly_combined.png"),
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/or_demand_monthly_combined_0423.png"),
        p_combined, width = 12, height = 6, dpi = 150)
 
 
@@ -522,11 +556,13 @@ p1 <- ggplot(hourly_or_demand_volume, aes(x = hour_bins, y = case_count)) +
   )
 
 print(p1)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/hourly_case_volume_demand_0423.png"),
+       p1, width = 12, height = 6, dpi = 150)
 
 
 p2 <- ggplot(hourly_mean_rooms, aes(x = hour_bins, y = avg_or_rooms)) +
   geom_col(fill = mshs_colors[1], width = 0.8) +
-  labs(title = "Avg Room Demand/Hour", x = "Surgery Hour", y = "Rooms") +
+  labs(title = "Avg Room Demand/Hour", x = "Hour", y = "Rooms") +
   geom_text(aes(label = round(avg_or_rooms,1), vjust = -0.5)) +
   scale_x_discrete(breaks = unique(hourly_mean_rooms$hour_bins),
                      expand = expansion(mult = 0.01) )+
@@ -536,6 +572,8 @@ p2 <- ggplot(hourly_mean_rooms, aes(x = hour_bins, y = avg_or_rooms)) +
   )
 
 print(p2)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/hourly_mean_rooms_0423.png"),
+       p2, width = 12, height = 6, dpi = 150)
 
 
 p3 <- ggplot(hourly_mean_minutes, aes(x = surgery_hour, y = avg_or_minutes)) +
@@ -545,7 +583,7 @@ p3 <- ggplot(hourly_mean_minutes, aes(x = surgery_hour, y = avg_or_minutes)) +
                      expand = expansion(mult = 0.01) )+
   mshs_theme +
   theme(
-    axis.text.x = element_text(angle = 0, hjust = 1)
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
   )
 
 

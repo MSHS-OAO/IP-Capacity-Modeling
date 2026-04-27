@@ -1,4 +1,5 @@
 --IPCAP_OR_CASE_DATA
+--IPCAP_OR_CASE_DATA
 CREATE TABLE IPCAP_OR_CASE_DATA as
     WITH ip AS (
        SELECT *
@@ -32,6 +33,7 @@ CREATE TABLE IPCAP_OR_CASE_DATA as
         ip.VERITY_DEPT_DESC_SRC,
         ip.VERITY_DIV_CD_SRC,
         ip.VERITY_DIV_DESC_SRC,
+        cases.HOSPITAL,
         or_room.LOCATION_NM,
         or_room.ROOM_ID,
         or_room.CLUSTER_NAME,

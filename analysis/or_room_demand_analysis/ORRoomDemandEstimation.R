@@ -311,7 +311,7 @@ shifts <- tibble(
   scenario             = c("10-hour shift", "8-hour shift", "6-hour shift"),
   shift_hours          = c(10, 8, 6),
   shift_label          = c("8 AM – 6 PM", "8 AM – 4 PM", "8 AM – 2 PM"),
-  minutes_per_room_day = c(600, 480, 360),
+  minutes_per_room_day = shift_hours*60,
   bar_color            = mshs_colors[c(1, 2, 3)]
 ) %>%
   mutate(scenario = factor(scenario,
@@ -335,7 +335,7 @@ p3 <- ggplot(demand_table %>% filter(surgery_month <= as.Date('2025-06-01',"%Y-%
   
   # Rooms-needed label past the bar
   geom_text(aes(x = shift_hours + 0.4,
-                label = paste0(rooms_rounded, " rms (", round(rooms_exact, 1), ")")),
+                label = paste0(rooms_rounded, " rooms (", round(rooms_exact, 1), ")")),
             hjust = 0, size = 2.8, fontface = "bold", color = "gray15") +
   
   scale_fill_manual(values = setNames(shifts$bar_color, shifts$scenario)) +
@@ -375,7 +375,7 @@ p4 <- ggplot(demand_table %>% filter(surgery_month >= as.Date('2025-07-01',"%Y-%
   
   # Rooms-needed label past the bar
   geom_text(aes(x = shift_hours + 0.4,
-                label = paste0(rooms_rounded, " rms (", round(rooms_exact, 1), ")")),
+                label = paste0(rooms_rounded, " rooms (", round(rooms_exact, 1), ")")),
             hjust = 0, size = 2.8, fontface = "bold", color = "gray15") +
   
   scale_fill_manual(values = setNames(shifts$bar_color, shifts$scenario)) +

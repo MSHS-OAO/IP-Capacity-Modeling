@@ -450,7 +450,7 @@ hourly <- ip_or_data_all_or_cases %>%
     ),
     surgery_hour = hour(hour_bucket)
   ) %>%
-  select(MSMRN, OR_CASE_ID, SURGERY_DATE, surgery_hour, hour_bucket, minutes_in_hour) %>%
+  select(HOSPITAL, MSMRN, OR_CASE_ID, SURGERY_DATE, surgery_hour, hour_bucket, minutes_in_hour) %>%
   distinct()
 
 
@@ -477,6 +477,26 @@ hourly_mean_rooms <- hourly %>%
   ) %>%
   group_by(hour_bins) %>%
   summarise(avg_or_rooms = sum(avg_or_cases))
+
+
+hourly_mean_rooms_hospital <- hourly %>%
+  filter(as.Date(SURGERY_DATE) >= as.Date('2025-01-01'),
+         as.Date(SURGERY_DATE) <= as.Date('2025-12-31')) %>%
+  distinct(SURGERY_DATE,OR_CASE_ID,surgery_hour,.keep_all = TRUE) %>%
+  group_by(HOSPITAL,surgery_hour) %>%
+  summarise(avg_or_cases = n_distinct(OR_CASE_ID)/352) %>%
+  ungroup() %>%
+  mutate(
+    hour_bins = cut(
+      surgery_hour,
+      breaks = c(-1, 6, 7:20, 23),
+      labels = c("0-6", as.character(7:20), "21-23"),
+      right  = TRUE
+    )
+  ) %>%
+  group_by(HOSPITAL,hour_bins) %>%
+  summarise(avg_or_rooms = sum(avg_or_cases)) %>%
+  drop_na(HOSPITAL)
 
 
 daily_or_demand <- procedure_minutes %>%
@@ -574,6 +594,57 @@ p2 <- ggplot(hourly_mean_rooms, aes(x = hour_bins, y = avg_or_rooms)) +
 print(p2)
 ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/hourly_mean_rooms_0423.png"),
        p2, width = 12, height = 6, dpi = 150)
+
+
+
+hourly_totals <- hourly_mean_rooms_hospital %>%
+  group_by(hour_bins) %>%
+  summarise(total_rooms = sum(avg_or_rooms, na.rm = TRUE), .groups = "drop")
+
+hourly_totals_percentages <- hourly_mean_rooms_hospital %>%
+  group_by(hour_bins) %>%
+  mutate(
+    total_rooms = sum(avg_or_rooms, na.rm = TRUE),
+    pct         = avg_or_rooms / total_rooms,
+    pct_label   = ifelse(pct >= 0.05,           # hide tiny labels that won't fit
+                         scales::percent(pct, accuracy = 1),
+                         "")
+  ) %>%
+  ungroup() %>%
+  mutate(HOSPITAL = factor(HOSPITAL, levels = c("MSM", "MSW", "MSH")))
+
+p4 <- ggplot(hourly_totals_percentages, aes(x = hour_bins, y = avg_or_rooms, fill = HOSPITAL)) +
+  geom_col( width = 0.8) +
+  labs(title = "Avg Room Demand/Hour", x = "Hour", y = "Rooms") +
+  geom_text(
+    aes(label = pct_label),
+    position  = position_stack(vjust = 0.5),
+    color     = "white",
+    fontface  = "bold",
+    size      = 3
+  ) +
+  geom_text(
+    data    = hourly_totals,
+    aes(x = hour_bins, y = total_rooms, label = round(total_rooms, 1)),
+    inherit.aes = FALSE,            # <-- important; ignore the fill aesthetic
+    vjust   = -0.4,
+    size    = 3,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(values = c("MSH" = mshs_colors[1],
+                               "MSW" = mshs_colors[2],
+                               "MSM" =  mshs_colors[3])) +
+  scale_x_discrete(breaks = unique(hourly_mean_rooms$hour_bins),
+                   expand = expansion(mult = 0.01) )+
+  mshs_theme +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "bottom"
+  )
+
+print(p4)
+ggsave(paste0(cap_dir, "Adhoc/MS Brain Health/Output/hourly_mean_rooms_0429_hospital.png"),
+       p4, width = 12, height = 6, dpi = 150)
 
 
 p3 <- ggplot(hourly_mean_minutes, aes(x = surgery_hour, y = avg_or_minutes)) +

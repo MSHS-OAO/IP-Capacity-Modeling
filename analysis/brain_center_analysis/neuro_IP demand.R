@@ -79,7 +79,6 @@ all_neuro_encounters <- unique(c(
 
 # Encounter ------------------------------------------
 surgeons <- tbl(con_prod, "MSX_PROVIDER_V") %>%
-  #filter(NPI %in% neuro_npi_codes) %>%
   select(NPI, LAST_NAME, FIRST_NAME, DEPT_SPEC1_DESC) %>%
   collect()
 
@@ -90,22 +89,43 @@ neuro_case_encounters <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
 ## Surgeon ----------------------------------------------------------- 
 neuro_encounter_surgeon <- neuro_case_encounters %>%
   group_by(DEPT_SPEC1_DESC, SURGEON_NPI, LAST_NAME, FIRST_NAME, FACILITY_MSX) %>%
-  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO)) %>%
+  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO), .groups = "drop") %>%
   pivot_wider(id_cols = c(DEPT_SPEC1_DESC, SURGEON_NPI, LAST_NAME, FIRST_NAME),
               names_from = FACILITY_MSX,
               values_from = ENCOUNTERS) %>%
   mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
-  arrange(DEPT_SPEC1_DESC, desc(TOTAL_ENCOUNTERS))
+  arrange(desc(TOTAL_ENCOUNTERS)) %>%
+  mutate(
+    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
+    CUM_PCT = round(cumsum(PCT), digits = 2))
+### majority of NAs coming from encounters that hit DRG inclusion but did not get procedure
+### some of these patients had organ procurement procedure without surgeon listed
+
+## CPT ----------------------------------------------------------
+neuro_encounter_cpt <- neuro_case_encounters %>%
+  group_by(PRIMARY_PROC_CODE, PRIMARY_PROCEDURE, FACILITY_MSX) %>%
+  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO), .groups = "drop") %>%
+  pivot_wider(id_cols = c(PRIMARY_PROC_CODE, PRIMARY_PROCEDURE),
+              names_from = FACILITY_MSX,
+              values_from = ENCOUNTERS) %>%
+  mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
+  arrange(desc(TOTAL_ENCOUNTERS)) %>%
+  mutate(
+    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
+    CUM_PCT = round(cumsum(PCT), digits = 2))
 
 ## DRG -------------------------------------------------------------------------
 neuro_encounter_drg <- neuro_case_encounters %>%
   group_by(MSDRG_CD_SRC, MSDRG_DESC_MSX, FACILITY_MSX) %>%
-  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO)) %>%
+  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO), .groups = "drop") %>%
   pivot_wider(id_cols = c(MSDRG_CD_SRC, MSDRG_DESC_MSX),
               names_from = FACILITY_MSX,
               values_from = ENCOUNTERS) %>%
   mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
-  arrange(desc(TOTAL_ENCOUNTERS))
+  arrange(desc(TOTAL_ENCOUNTERS)) %>%
+  mutate(
+    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
+    CUM_PCT = round(cumsum(PCT), digits = 2))
 
 # Bed Demand -----------------------------------------
 

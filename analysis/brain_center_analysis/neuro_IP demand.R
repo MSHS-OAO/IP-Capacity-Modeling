@@ -47,7 +47,8 @@ neuro_encounters_drg <- unique(neuro_ip_encounters$ENCOUNTER_NO)
 # CPT Patient Identification --------------------------------------------------
 neuro_or_cases <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
   filter(FACILITY_MSX %in% c("MSH", "RVT", "STL"),
-         PRIMARY_PROC_CODE %in% neuro_cpt_codes) %>%
+         PRIMARY_PROC_CODE %in% neuro_cpt_codes,
+         trimws(CASE_STATUS) == "Completed") %>%
   collect()
 
 # isolate the neuro encounters
@@ -56,7 +57,8 @@ neuro_encounters_cpt <- unique(neuro_or_cases$ENCOUNTER_NO)
 # CPT Patient Identification --------------------------------------------------
 neuro_surgeon_cases <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
   filter(FACILITY_MSX %in% c("MSH", "RVT", "STL"),
-         SURGEON_NPI %in% neuro_npi_codes) %>%
+         SURGEON_NPI %in% neuro_npi_codes,
+         trimws(CASE_STATUS) == "Completed") %>%
   collect()
 
 # isolate the neuro encounters
@@ -86,6 +88,19 @@ neuro_case_encounters <- tbl(con_prod, "IPCAP_OR_CASE_DATA") %>%
   filter(ENCOUNTER_NO %in% all_neuro_encounters) %>%
   collect() %>%
   left_join(surgeons, by = c("SURGEON_NPI" = "NPI"))
+
+nuero_proc_check <- neuro_case_encounters %>%
+  filter(trimws(CASE_STATUS) == "Completed") %>%
+  group_by(MSDRG_CD_SRC, MSDRG_DESC_MSX) %>%
+  summarise(
+    TOTAL_PROCEDURES = n(),
+    TOTAL_NEURO = sum(PRIMARY_PROC_CODE %in% neuro_cpt_codes),
+    TOTAL_NON_NEURO = TOTAL_PROCEDURES - TOTAL_NEURO,
+    NEURO_PCT = TOTAL_NEURO/TOTAL_PROCEDURES * 100) %>%
+  arrange(desc(TOTAL_PROCEDURES))
+
+no_case_check <- neuro_case_encounters %>%
+  filter(is.na(OR_CASE_ID))
 ## Surgeon ----------------------------------------------------------- 
 neuro_encounter_surgeon <- neuro_case_encounters %>%
   group_by(DEPT_SPEC1_DESC, SURGEON_NPI, LAST_NAME, FIRST_NAME, FACILITY_MSX) %>%
@@ -96,23 +111,10 @@ neuro_encounter_surgeon <- neuro_case_encounters %>%
   mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
   arrange(desc(TOTAL_ENCOUNTERS)) %>%
   mutate(
-    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
-    CUM_PCT = round(cumsum(PCT), digits = 2))
+    PCT = TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100,
+    CUM_PCT = cumsum(PCT))
 ### majority of NAs coming from encounters that hit DRG inclusion but did not get procedure
 ### some of these patients had organ procurement procedure without surgeon listed
-
-## CPT ----------------------------------------------------------
-neuro_encounter_cpt <- neuro_case_encounters %>%
-  group_by(PRIMARY_PROC_CODE, PRIMARY_PROCEDURE, FACILITY_MSX) %>%
-  summarise(ENCOUNTERS = n_distinct(ENCOUNTER_NO), .groups = "drop") %>%
-  pivot_wider(id_cols = c(PRIMARY_PROC_CODE, PRIMARY_PROCEDURE),
-              names_from = FACILITY_MSX,
-              values_from = ENCOUNTERS) %>%
-  mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
-  arrange(desc(TOTAL_ENCOUNTERS)) %>%
-  mutate(
-    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
-    CUM_PCT = round(cumsum(PCT), digits = 2))
 
 ## DRG -------------------------------------------------------------------------
 neuro_encounter_drg <- neuro_case_encounters %>%
@@ -124,8 +126,8 @@ neuro_encounter_drg <- neuro_case_encounters %>%
   mutate(TOTAL_ENCOUNTERS = rowSums(across(where(is.numeric)), na.rm = TRUE)) %>%
   arrange(desc(TOTAL_ENCOUNTERS)) %>%
   mutate(
-    PCT = round(TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100, digits = 2),
-    CUM_PCT = round(cumsum(PCT), digits = 2))
+    PCT = TOTAL_ENCOUNTERS / sum(TOTAL_ENCOUNTERS) * 100,
+    CUM_PCT = cumsum(PCT))
 
 # Bed Demand -----------------------------------------
 

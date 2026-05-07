@@ -68,24 +68,24 @@ baseline <- baseline %>%
   )
 #  ------------------------------ Functions ------------------------------------
 
-# load all functions
-source("functions/los_adjustment.R")
-source("functions/volume_projections.R")
-source("functions/daily_demand.R")
-
-# ---------------------------- Scenario Parameters -----------------------------
-
-# file with volume projections
-vol_projections_file <- "2026_budget_volume.csv"
-
-# file with los adjustments
-los_projections_file <- "los_adjustments_2027Q4.csv"
-
-# calculate # of weekdays and # of all days in dataset
-num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
-                                min(baseline$SERVICE_DATE), 
-                                units = "days")) + 1
-weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
+# # load all functions
+# source("functions/los_adjustment.R")
+# source("functions/volume_projections.R")
+# source("functions/daily_demand.R")
+# 
+# # ---------------------------- Scenario Parameters -----------------------------
+# 
+# # file with volume projections
+# vol_projections_file <- "2026_budget_volume.csv"
+# 
+# # file with los adjustments
+# los_projections_file <- "los_adjustments_2027Q4.csv"
+# 
+# # calculate # of weekdays and # of all days in dataset
+# num_days <- as.numeric(difftime(max(baseline$SERVICE_DATE),
+#                                 min(baseline$SERVICE_DATE), 
+#                                 units = "days")) + 1
+# weekdays <- seq(min(baseline$SERVICE_DATE), max(baseline$SERVICE_DATE), by = "day")
 
 # years
 n_years <- "3 year"

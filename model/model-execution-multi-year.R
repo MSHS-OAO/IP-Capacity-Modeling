@@ -71,7 +71,7 @@ baseline <- baseline %>%
 # # load all functions
 # source("functions/los_adjustment.R")
 # source("functions/volume_projections.R")
-# source("functions/daily_demand.R")
+source("functions/daily_demand.R")
 # 
 # # ---------------------------- Scenario Parameters -----------------------------
 # 
@@ -107,6 +107,7 @@ names(daily_demand_forecast) <- names(datasets_processed)
 # baseline forecast on unaltered 2025 data
 baseline_df <- daily_demand_forecast[["baseline"]] %>%
   filter(LOC_NAME != "MSBI",
+         #### manual adjustment for nursing strike census drop #####
          SERVICE_DATE <= as.Date("2025-12-28"),
   ) %>%
   group_by(SERVICE_DATE) %>%

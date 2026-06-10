@@ -141,7 +141,10 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
       join_by(
         PATIENT_MRN == MSMRN,
         between(SURGERY_DATE, ADMIT_DT_SRC, DSCH_DT_SRC)
-    )) 
+    ))%>%
+    group_by(OR_CASE_ID) %>%
+    slice_max(ADMIT_DT_SRC, n = 1, with_ties = FALSE, na_rm = FALSE) %>%
+    ungroup()
     
   schedule_data_ip <- schedule_data_ip %>%
     mutate(across(c(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM),

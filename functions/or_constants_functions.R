@@ -76,92 +76,74 @@ prime_time_location <- function(data) {
 }
 
 # Function to fetch data ----
-get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-12-31',status = 'Completed'){
+get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-12-31',status = 'Completed', mrn_list = NULL){
   
   # DSN and Database Connections
   dsn <- "OAO Cloud DB Production"
   conn <- dbConnect(odbc(), dsn)
   encounter_data_table_name <- 'MS_INSIGHT.OR_QUALITY_DASHBOARD_CASE_DETAILS'
-  room_master_data_table_name <- 'MS_INSIGHT.OR_QUALITY_DASHBOARD_ROOM_MASTER'
   utlization_calculation_table <- 'MS_INSIGHT.OR_QUALITY_ROOM_UTIL_V'
   
   
-  # Query 
-  query <- glue("
-              SELECT ENCOUNTERS.OR_CASE_ID,
-                     ENCOUNTERS.ENCOUNTER_NO_SRC AS ENCOUNTER_NO_SRC,
-                     ENCOUNTERS.ENCOUNTER_ID AS ENCOUNTER_ID,
-                     ENCOUNTERS.PAYOR_GROUP_DESC_MSX_OP,
-                     ENCOUNTERS.CCM_PAYOR_DESC_MSX_OP,
-                     ENCOUNTERS.PAYOR_GROUP_OP,
-                     ENCOUNTERS.CLINIC_GROUP_DESC_MSX,
-                     ENCOUNTERS.REG_AREA_DESC_SRC,
-                     -- Provider Details
-                     ENCOUNTERS.ATTENDING_MD_NAME_MSX AS ATTENDING_MD,
-                     ENCOUNTERS.ATTENDING_MD_SPEC_SRC AS ATTENDING_MD_SPECIALIZATION,
-                     ENCOUNTERS.PRIMARY_SURGEON AS PRIMARY_SURGEON,
-                     ENCOUNTERS.SURGEON_SPECIALTY AS PRIMARY_SURGEON_SPECIALTY,
-                     -- Patient Details
-                     ENCOUNTERS.PAT_CLASS_NAME AS PATIENT_CLASS,
-                     ENCOUNTERS.PAT_MRN_ID AS PATIENT_MRN,
-                     TO_CHAR(ENCOUNTERS.PAT_DOB,'YYYY-MM-DD') AS PATIENT_DOB,
-                     ENCOUNTERS.ADMIT_CSN_ID,
-                     -- Procedure Details
-                     ENCOUNTERS.TOTAL_TIME_NEEDED,
-                     ENCOUNTERS.PRIMARY_PROC_CODE AS PRIMARY_PROCEDURE_CODE,
-                     ENCOUNTERS.PRIMARY_PROCEDURE AS PRIMARY_PROCEDURE_DESC,
-                     ENCOUNTERS.ANESTHESIA_TYPE AS ANESTHESIA_TYPE,
-                     ENCOUNTERS.PRIME_TIME_PROC,
-                     -- Time Data/dates
-                     ENCOUNTERS.SCHED_IN_ROOM_DTTM,
-                     ENCOUNTERS.SCHED_START_TIME,
-                     ENCOUNTERS.PATIENT_IN_ROOM_DTTM,
-                     ENCOUNTERS.PATIENT_OUT_ROOM_DTTM,
-                     ENCOUNTERS.MINUTES_IN_ROOM_TO_OUT_ROOM,
-                     ENCOUNTERS.TURNOVER_FROM_PRIOR_CASE,
-                     ENCOUNTERS.SURGERY_DATE,
-                     -- Room/Location Details
-                     ENCOUNTERS.OR_ID AS ROOM_ID,
-                     ENCOUNTERS.OR_LOCATION AS LOCATION_NAME,
-                     ENCOUNTERS.CLUSTER_NAME AS CLUSTER_NAME,
-                     ENCOUNTERS.ROBOTIC_SURGERY_DAVINCI_YN,
-                     TEMPLATE_TIME.HOLIDAY_YN ,
-                     TEMPLATE_TIME.WEEKEND_YN
-              FROM
-              {encounter_data_table_name} ENCOUNTERS
-              LEFT JOIN
-              {utlization_calculation_table} TEMPLATE_TIME ON ENCOUNTERS.OR_CASE_ID =  TEMPLATE_TIME.LOG_ID
-              WHERE
-              ENCOUNTERS.SURGERY_DATE >= TO_DATE('{sched_start_date}','YYYY-MM-DD') AND
-              ENCOUNTERS.SURGERY_DATE <= TO_DATE('{sched_end_date}','YYYY-MM-DD') AND
-              -- Had to use TRIM since oracle adds trailing spaces to days with less characters compared to WEDNESDAY
-              TRIM(TO_CHAR(ENCOUNTERS.SURGERY_DATE, 'DAY')) NOT IN ('SATURDAY','SUNDAY') AND
-              TEMPLATE_TIME.WEEKEND_YN = 'N' AND
-              -- Exclusions based on Tableau dashboard
-              -- ENCOUNTERS.SURGERY_DATE NOT IN (SELECT DATES FROM HOLIDAYS) AND
-              TEMPLATE_TIME.HOLIDAY_YN = 'N' AND
-              -- Exclude L&D
-              ENCOUNTERS.OR_LOCATION NOT LIKE 'L&D%' AND
-              ENCOUNTERS.CASE_STATUS = '{status}';
-              ")
+  encounters <- tbl(conn, in_schema("MS_INSIGHT", "OR_QUALITY_DASHBOARD_CASE_DETAILS"))   # your actual names
+  utlization_calculation_table   <- tbl(conn, in_schema("MS_INSIGHT", "OR_QUALITY_ROOM_UTIL_V"))
   
-  # prime_time <- glue(" SELECT DISTINCT HOSPITAL, ABSOLUTE_SLOT_START, ABSOLUTE_SLOT_END
-  #                      FROM {utlization_calculation_table} TEMPLATE_TIME
-  #                      WHERE
-  #                      TEMPLATE_TIME.SNAPSHOT_DATE >= TO_DATE('{sched_start_date}','YYYY-MM-DD') AND
-  #                      TEMPLATE_TIME.SNAPSHOT_DATE <= TO_DATE('{sched_end_date}','YYYY-MM-DD') AND
-  #                      TEMPLATE_TIME.WEEKEND_YN = 'N' AND
-  #                      TEMPLATE_TIME.HOLIDAY_YN = 'N' AND
-  #                      SLOT_TYPE = 'BLOCK';
-  #                      ")
   
-
-  schedule_data <- dbGetQuery(conn, query)
-  # prime_time_data <- dbGetQuery(conn,prime_time)
+  or_cases<- encounters %>%
+    left_join(utlization_calculation_table, by = c("OR_CASE_ID" = "LOG_ID")) %>%
+    filter(
+      SURGERY_DATE >= to_date(sched_start_date, "YYYY-MM-DD"),
+      SURGERY_DATE <= to_date(sched_end_date,   "YYYY-MM-DD"),
+      # PAT_MRN_ID %in% mrn_list,            
+      WEEKEND_YN == "N",
+      HOLIDAY_YN == "N",
+      # sql("OR_LOCATION NOT LIKE 'L&D%'"),
+      CASE_STATUS == status
+    ) %>%
+    select(
+      OR_CASE_ID,
+      ENCOUNTER_NO_SRC, ENCOUNTER_ID,
+      PAYOR_GROUP_DESC_MSX_OP, CCM_PAYOR_DESC_MSX_OP, PAYOR_GROUP_OP,
+      CLINIC_GROUP_DESC_MSX, REG_AREA_DESC_SRC,
+      ATTENDING_MD = ATTENDING_MD_NAME_MSX,
+      ATTENDING_MD_SPECIALIZATION = ATTENDING_MD_SPEC_SRC,
+      PRIMARY_SURGEON,
+      PRIMARY_SURGEON_SPECIALTY = SURGEON_SPECIALTY,
+      # PATIENT_CLASS = PAT_CLASS_NAME,
+      PATIENT_MRN = PAT_MRN_ID,
+      PATIENT_DOB = PAT_DOB,
+      ADMIT_CSN_ID, TOTAL_TIME_NEEDED,
+      PRIMARY_PROCEDURE_CODE = PRIMARY_PROC_CODE,
+      PRIMARY_PROCEDURE_DESC = PRIMARY_PROCEDURE,
+      ANESTHESIA_TYPE, PRIME_TIME_PROC,
+      SCHED_IN_ROOM_DTTM, SCHED_START_TIME,
+      PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM,
+      MINUTES_IN_ROOM_TO_OUT_ROOM, TURNOVER_FROM_PRIOR_CASE,
+      SURGERY_DATE,
+      ROOM_ID = OR_ID,
+      LOCATION_NAME = OR_LOCATION,
+      CLUSTER_NAME, ROBOTIC_SURGERY_DAVINCI_YN,
+      HOLIDAY_YN, WEEKEND_YN
+    )
+  
+  # or_cases_lazy %>% show_query()   # inspect the Oracle SQL it generates
+  schedule_data <- or_cases %>% collect()   
+  
+  
   dbDisconnect(conn)
   
   schedule_data <- prime_time_location(schedule_data) %>%
-    distinct(OR_CASE_ID, .keep_all = TRUE) %>%
+    distinct(OR_CASE_ID, .keep_all = TRUE) 
+  
+  schedule_data_ip <- schedule_data %>%
+    left_join(
+      mrn_list,
+      join_by(
+        PATIENT_MRN == MSMRN,
+        between(SURGERY_DATE, ADMIT_DT_SRC, DSCH_DT_SRC)
+    )) 
+    
+  schedule_data_ip <- schedule_data_ip %>%
     mutate(across(c(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM),
                   ~ force_tz(.x, tzone = "America/New_York"))) %>%
     group_by(ROOM_ID) %>%
@@ -192,7 +174,7 @@ summary_metrics <- function(processed_or_cases){
   RECOVERABLE_THRESHOLD <- 180  # minutes
   
   
-  baseline_data <- or_cases %>%
+  baseline_data <- processed_or_cases %>%
     filter(!is.na(overlap_primetime_procedure) | !is.na(overlap_primetime_setup)) %>% # get only primetime overlaping cases
     mutate(
       proc_pt_min = coalesce(as.numeric(as.duration(overlap_primetime_procedure), "minutes"), 0),
@@ -222,7 +204,7 @@ summary_metrics <- function(processed_or_cases){
         busy_end   <- pmin(PATIENT_OUT_AND_SETUP_CLEANUP_END, pt_end)
         keep <- busy_end > busy_start
         bs <- busy_start[keep]; be <- busy_end[keep]
-        if (length(bs) == 0) {
+        if (length(bs) == 0) { 
           as.numeric(difftime(pt_end, pt_start, units = "mins"))
         } else {
           pmax(c(

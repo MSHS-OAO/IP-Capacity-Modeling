@@ -182,7 +182,11 @@ summary_wide <- summary_all %>%
     `Δ Cases`       = `Baseline + New Volume # Cases` - `Baseline # Cases`,
     `Δ Utilization` = `Baseline + New Volume Prime Time Utilization` - `Baseline Prime Time Utilization`,
     `Δ Recoverable` = `Baseline + New Volume Prime Time Recoverable Time` - `Baseline Prime Time Recoverable Time`
-  )
+  ) %>%
+  select(Cluster, LOCATION_NAME, `OR Room`, SURGERY_DATE,
+          starts_with("Baseline") & !contains("New Volume"),
+          starts_with("Baseline + New Volume"),
+          starts_with("Δ"))
 
 
 # =============

@@ -243,7 +243,6 @@ for (site in sites) {
 # "Volume Projections" / "Delta" across their column groups; second row
 # holds the detail column names. Other sheets write plainly.
 # =================================================================
-library(openxlsx)
 
 # strip the band prefix so detail headers read "# Cases", "Used Time", etc.
 strip_band <- function(nm) nm %>%

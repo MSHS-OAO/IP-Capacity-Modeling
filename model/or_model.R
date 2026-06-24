@@ -214,10 +214,20 @@ for (site in sites) {
   dplot <- demand_plot_df %>% filter(casc_loc == site)
   cplot <- capacity_hourly %>% filter(casc_loc == site)
   
+  # label points: one per staffing-level change (band edge), placed at the
+  # start hour of each distinct capacity level, just above the dashed line
+  clab <- cplot %>%
+    arrange(hr) %>%
+    mutate(changed = capacity_ors != lag(capacity_ors) | is.na(lag(capacity_ors))) %>%
+    filter(changed)
+  
   p_site <- ggplot(dplot, aes(hr, ors_needed, color = scenario)) +
     geom_step(data = cplot, aes(hr, capacity_ors),
               inherit.aes = FALSE, linetype = "dashed",
               color = mshs_gray, linewidth = 0.8) +
+    geom_text(data = clab, aes(hr, capacity_ors, label = capacity_ors),
+              inherit.aes = FALSE, vjust = -0.6, hjust = -0.8,
+              color = mshs_gray, fontface = "bold", size = 4) +
     geom_line(linewidth = 1.1) +
     scale_color_manual(values = scenario_cols) +
     scale_x_continuous(breaks = seq(0, 24, 2)) +
@@ -310,7 +320,7 @@ all_cases %>% count(is_new)
 
 
 # Per-hour, both scenarios: mean (current) vs total vs n_dates
-bind_rows(
+test <- bind_rows(
   baseline_collision %>% mutate(scenario="Baseline"),
   all_cases %>% mutate(scenario="Volume Projections")
 ) %>%
@@ -325,3 +335,21 @@ bind_rows(
             total_c = sum(concurrent),
             n_dates = n_distinct(SURGERY_DATE), .groups="drop") %>%
   filter(hr == 11) %>% print()
+
+
+
+or_cases_baseline %>%
+  mutate(casc_loc = xwalk_loc(LOCATION_NAME),
+         OCC_END = PATIENT_OUT_ROOM_DTTM + minutes(as.integer(coalesce(TURNOVER_FROM_PRIOR_CASE, 0))),
+         in_s  = as.numeric(as_hms(format(PATIENT_IN_ROOM_DTTM,"%H:%M:%S"))),
+         out_s = as.numeric(as_hms(format(OCC_END,"%H:%M:%S")))) %>%
+  filter(casc_loc == "MSH") %>%
+  group_by(SURGERY_DATE) %>%
+  summarise(
+    touching_hr11          = sum(in_s < 12*3600 & out_s > 11*3600),
+    occupied_at_1100       = sum(in_s <= 11*3600 & out_s > 11*3600),
+    distinct_rooms_at_1100 = n_distinct(ROOM_ID[in_s <= 11*3600 & out_s > 11*3600]),
+    .groups = "drop"
+  ) %>%
+  summarise(across(c(touching_hr11, occupied_at_1100, distinct_rooms_at_1100),
+                   ~ mean(.x, na.rm = TRUE)))

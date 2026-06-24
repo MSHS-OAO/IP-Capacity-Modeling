@@ -358,6 +358,9 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
                     `Prime Time TAT`, `Prime Time Available Time`,
                     `Prime Time Recoverable Time`, `Prime Time Non Recoverable Time`),
                   ~ coalesce(.x, 0)),
+           across(c(`Prime Time Used Time`, `Prime Time Procedure Time`,
+                    `Prime Time TAT`, `Prime Time Available Time`,
+                    `Prime Time Recoverable Time`, `Prime Time Non Recoverable Time`), ~ .x / 60),
            `Prime Time Utilization` = if_else(`Prime Time Available Time` > 0,
                                               `Prime Time Used Time` / `Prime Time Available Time`, NA_real_),
            scenario = scenario_label) %>%

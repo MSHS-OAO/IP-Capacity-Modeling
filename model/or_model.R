@@ -19,7 +19,7 @@ mrn_list_ip <- data_baseline_ip %>%
 
 
 # Get OR data based on ipdata ----
-or_cases_baseline <- get_or_data(sched_start_date = min_admin_date, sched_end_date = max_discharge_date,status = 'Completed', mrn_list = mrn_list_ip)
+or_cases_baseline <- get_or_data(sched_start_date = "2025-01-01", sched_end_date = "2025-12-31",status = 'Completed', mrn_list = mrn_list_ip)
 
 
 
@@ -88,13 +88,19 @@ new_volume_cases <- data_volume_projections_ip %>%
 # baseline rooms. Dummy capacity impact is shown in the collision view.
 # Dummies need CLUSTER_NAME for the Hospital grain; derive from LOCATION.
 # =================================================================
-new_volume_cases_raw <- new_volume_cases %>%
+new_volume_cases_raw <- prime_time_location(new_volume_cases) %>%
   mutate(
     PATIENT_OUT_AND_SETUP_CLEANUP_END = PATIENT_OUT_ROOM_DTTM + minutes(as.integer(TURNOVER_FROM_PRIOR_CASE)),
+    PATIENT_OUT_AND_SETUP_CLEANUP_END = if_else(is.na(PATIENT_OUT_AND_SETUP_CLEANUP_END),
+                                                PATIENT_OUT_ROOM_DTTM,PATIENT_OUT_AND_SETUP_CLEANUP_END),
     overlap_primetime_procedure = 1,                            # non-NA so the base filter keeps them
-    overlap_primetime_setup     = 1
+    overlap_primetime_setup     = 1,
+    PrimeTimeInterval  = interval(PRIME_TIME_START, PRIME_TIME_END, tzone = "America/New_York"),
+    ProcedureInterval  = interval(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, tzone = "America/New_York"),
+    SetupTimeInterval  = interval(PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END, tzone = "America/New_York"),
+    
   ) %>%
-  mutate(casc_loc = xwalk_loc(LOCATION_NAME))
+  mutate(Location = xwalk_loc(LOCATION_NAME))
 
 
 
@@ -123,130 +129,117 @@ output_wide <- output_all %>%
   mutate(
     `Delta Cases`        = `Volume Projections # Cases` - `Baseline # Cases`,
     `Delta Used`         = `Volume Projections Prime Time Used Time` - `Baseline Prime Time Used Time`,
+    `Delta Procedure Time` = `Volume Projections Prime Time Procedure Time` - `Baseline Prime Time Procedure Time`,
+    `Delta TAT`         = `Volume Projections Prime Time TAT` - `Volume Projections Prime Time TAT`,
     `Delta Utilization`  = `Volume Projections Prime Time Utilization` - `Baseline Prime Time Utilization`,
     `Delta Recoverable`  = `Volume Projections Prime Time Recoverable Time` - `Baseline Prime Time Recoverable Time`
   )
 
 
+# ===============================================================
+# Demand Plots
+# ===============================================================
 
-# Lightweight combined case set for the COLLISION / demand views only.
-# Collision needs LOCATION_NAME + timestamps (no ROOM_ID). Occupancy now
-# INCLUDES setup/cleanup (PATIENT_OUT + turnover), and bands are clipped
-# to each location-day's prime-time window.
-collision_cols <- c("OR_CASE_ID", "PATIENT_IN_ROOM_DTTM", "PATIENT_OUT_ROOM_DTTM",
-                    "OCC_END", "PRIME_TIME_START", "PRIME_TIME_END",
-                    "SURGERY_DATE", "LOCATION_NAME")
 
-baseline_collision <- or_cases_baseline %>%
-  mutate(SURGERY_DATE = as.Date(SURGERY_DATE),
-         OCC_END = PATIENT_OUT_ROOM_DTTM +
-           minutes(as.integer(coalesce(TURNOVER_FROM_PRIOR_CASE, 0)))) %>%
-  select(all_of(collision_cols)) %>% mutate(is_new = FALSE)
+or_cases_baseline_demand <- or_cases_baseline %>%
+  select(OR_CASE_ID,PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
+         PRIME_TIME_START, PRIME_TIME_END,ProcedureInterval, SetupTimeInterval,PrimeTimeInterval,SURGERY_DATE,LOCATION_NAME)
 
-new_volume_cases_collision <- new_volume_cases %>%
-  prime_time_location() %>%
-  mutate(OCC_END = PATIENT_OUT_ROOM_DTTM +
-           minutes(as.integer(coalesce(TURNOVER_FROM_PRIOR_CASE, 0)))) %>%
-  select(all_of(collision_cols)) %>% mutate(is_new = TRUE)
+or_cases_new_volume_demand <- new_volume_cases_raw %>%
+  select(OR_CASE_ID,PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
+         PRIME_TIME_START, PRIME_TIME_END,ProcedureInterval, SetupTimeInterval,PrimeTimeInterval,SURGERY_DATE,LOCATION_NAME)
 
-all_cases <- bind_rows(baseline_collision, new_volume_cases_collision)
+or_cases_new_volume_baseline_demand <- bind_rows(or_cases_new_volume_demand,or_cases_baseline_demand)
 
-# =================================================================
-# Cascade collision rate (capacity model) ----
-# capacity(band) = rooms_open * band_minutes; demand = case room-minutes in band
-# =================================================================
+baseline_primetime_cases <- or_cases_baseline %>%
+  filter(!is.na(overlap_primetime_procedure))
+distinct_dates <- n_distinct(baseline_primetime_cases$SURGERY_DATE)
 
-collision_all <- bind_rows(
-  collision_by_band(baseline_collision, "Baseline"),
-  collision_by_band(all_cases,         "Volume Projections")
-)
-# scenario-level summary (overall)
-collision_rate <- collision_all %>%
-  group_by(scenario,casc_loc,SURGERY_DATE,band) %>%
-  summarise(n_bands = n(), colliding = sum(collision),
-            collision_rate = colliding / n_bands,
-            total_excess_hrs = sum(excess_min) / 60, .groups = "drop")
-print(collision_rate)
+demand_plot_baseline <- demand_function(or_cases_baseline_demand, baseline_dates = distinct_dates)
+demand_plot_baseline_new_volume <- demand_function(or_cases_new_volume_baseline_demand,baseline_dates = distinct_dates)
 
-# by Hospital x Day: a day "collides" if any band that day exceeds capacity;
-# rate = fraction of that day's bands over capacity. Add Month/Day for joins.
-collision_by_hosp_day <- collision_all %>%
-  mutate(Hospital = casc_loc, Month = month(SURGERY_DATE), Day = day(SURGERY_DATE)) %>%
-  group_by(scenario, Hospital, SURGERY_DATE, Month, Day) %>%
-  summarise(n_bands          = n(),
-            colliding_bands  = sum(collision),
-            band_collision_rate = colliding_bands / n_bands,   # share of bands over capacity
-            any_collision    = as.integer(colliding_bands > 0), # day flagged at all
-            total_excess_hrs = sum(excess_min) / 60,
-            peak_excess_min  = max(excess_min),
-            .groups = "drop") %>%
-  arrange(scenario, Hospital, SURGERY_DATE)
+demand_plot_baseline <- demand_plot_baseline %>%
+  rename(baseline_demand = avg_or_cases)
 
-# wide view: baseline vs projected collision side by side per Hospital-day.
-# Key on full SURGERY_DATE (Month/Day alone collide across years -> list-cols).
-collision_by_hosp_day_wide <- collision_by_hosp_day %>%
-  select(scenario, Hospital, SURGERY_DATE, band_collision_rate, total_excess_hrs, any_collision) %>%
-  pivot_wider(id_cols = c(Hospital, SURGERY_DATE),
-              names_from = scenario,
-              values_from = c(band_collision_rate, total_excess_hrs, any_collision),
-              names_glue = "{scenario} {.value}",
-              names_vary = "slowest") %>%
-  arrange(Hospital, SURGERY_DATE)
+demand_plot_baseline_new_volume <- demand_plot_baseline_new_volume %>%
+  rename(newvolume_demand = avg_or_cases)
+
+demand <- demand_plot_baseline %>%
+  left_join(demand_plot_baseline_new_volume)
 
 
 # =================================================================
-# Graph: room demand (ORs/hour) vs staffed capacity ----
-# =================================================================
+# Plots
+# ================================================================
 
-demand_plot_df <- bind_rows(
-  expand_hours(baseline_collision, "Baseline"),
-  expand_hours(all_cases,          "Volume Projections")
-)
+# build the stacked long frame: Baseline + Increment (new - baseline)
+demand_stack <- demand %>%
+  mutate(new_volume = pmax(0, newvolume_demand - baseline_demand)) %>%
+  select(Location, surgery_hour,
+         Baseline = baseline_demand, `New Volume` = new_volume) %>%
+  tidyr::pivot_longer(c(Baseline, `New Volume`),
+                      names_to = "part", values_to = "demand") %>%
+  mutate(part = factor(part, levels = c("New Volume", "Baseline")))  # baseline on bottom
+
+# staffed-room capacity per hour (from cascade)
 capacity_hourly <- cascade_factor %>%
-  rowwise() %>% mutate(hr = list(seq(floor(b_start/3600), floor(b_end/3600)))) %>%
+  mutate(
+    h_start = hour(parse_date_time(`Time Start`, "I:M:S p")),
+    h_end   = hour(parse_date_time(`Time End`,   "I:M:S p"))
+  ) %>%
+  rowwise() %>%
+  mutate(hr = list(seq(h_start, max(h_start, h_end - 1)))) %>%
   unnest(hr) %>% ungroup() %>%
-  group_by(casc_loc, hr) %>% summarise(capacity_ors = max(n_ors), .groups = "drop")
+  group_by(Location = Location, surgery_hour = hr) %>%
+  summarise(capacity = max(`# ORs`), .groups = "drop")
 
 
-# One graph per site, saved separately ----
-sites <- sort(unique(demand_plot_df$casc_loc))
+stack_cols <- c("Baseline" = mshs_violet, "New Volume" = mshs_cyan)
+
+sites <- sort(unique(demand_stack$Location))
 for (site in sites) {
-  dplot <- demand_plot_df %>% filter(casc_loc == site)
-  cplot <- capacity_hourly %>% filter(casc_loc == site)
+  ds <- demand_stack    %>% filter(Location == site, surgery_hour>6, surgery_hour<=17)
+  cl <- capacity_hourly %>% filter(Location == site,surgery_hour>6, surgery_hour<=17)
   
-  # label points: one per staffing-level change (band edge), placed at the
-  # start hour of each distinct capacity level, just above the dashed line
-  clab <- cplot %>%
-    arrange(hr) %>%
-    mutate(changed = capacity_ors != lag(capacity_ors) | is.na(lag(capacity_ors))) %>%
-    filter(changed)
+  # per-site scaling factor from baseline vs increment maxima
+  base_max <- max(ds$demand[ds$part == "Baseline"],  na.rm = TRUE)
+  inc_max  <- max(ds$demand[ds$part == "New Volume"], na.rm = TRUE)
+  scaling_factor <- 5
   
-  p_site <- ggplot(dplot, aes(hr, ors_needed, color = scenario)) +
-    geom_step(data = cplot, aes(hr, capacity_ors),
+  # plotting height: baseline as-is, increment scaled up; keep real value for labels
+  ds_plot <- ds %>%
+    mutate(plot_h     = if_else(part == "New Volume", demand * scaling_factor, demand),
+           real_value = demand,
+           part = factor(part, levels = c("New Volume", "Baseline")))  # baseline on bottom
+  
+  p <- ggplot(ds_plot, aes(surgery_hour, plot_h, fill = part)) +
+    geom_col(width = 0.8) +
+    geom_step(data = cl, aes(surgery_hour, capacity),
               inherit.aes = FALSE, linetype = "dashed",
               color = mshs_gray, linewidth = 0.8) +
-    geom_text(data = clab, aes(hr, capacity_ors, label = capacity_ors),
-              inherit.aes = FALSE, vjust = -0.6, hjust = -0.8,
-              color = mshs_gray, fontface = "bold", size = 4) +
-    geom_line(linewidth = 1.1) +
-    scale_color_manual(values = scenario_cols) +
-    scale_x_continuous(breaks = seq(0, 24, 2)) +
-    labs(title = paste0(site, ": OR demand (rooms needed / hour) vs staffed capacity"),
-         subtitle = "Dashed grey = staffed rooms (cascade)  |  solid = mean case demand (incl. setup)",
-         x = "Hour of day", y = "ORs in use", color = NULL) +
+    # value labels: REAL numbers, placed at each segment's stacked midpoint
+    geom_text(aes(label = if_else(real_value >= 0.05, sprintf("%.1f", real_value), "")),
+              position = position_stack(vjust = 0.5),
+              size = 3, color = "white") +
+    scale_y_continuous(
+      name = "Avg # Cases",
+      breaks = sort(unique(cl$capacity)), 
+    ) +
+    scale_x_continuous(breaks = seq(0, 24, 1)) +
+    scale_fill_manual(name = "", values = c("Baseline" = mshs_violet, "New Volume" = mshs_cyan),
+                      breaks = c("Baseline", "New Volume")) +
+    labs(title = paste0(site, ": hourly OR demand \u2014 baseline + new volume"),
+         x = "Hour of day") +
     theme_gray(base_size = 13) +
     theme(legend.position = "top",
           plot.title = element_text(face = "bold", color = mshs_violet),
-          panel.grid.minor = element_blank())
+          axis.title.y.right = element_text(color = mshs_cyan),
+          axis.text.y.right  = element_text(color = mshs_cyan),
+          panel.grid = element_blank())
   
-  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "or_demand_", site, ".png"),
-         p_site, width = 10, height = 6, dpi = 150)
+  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_stacked_", site, ".png"), p,
+         width = 10, height = 6, dpi = 150)
 }
-
-
-
-
-
 # =================================================================
 # Write outputs (openxlsx, with merged band headers) ----
 # Output by Grain gets a two-row header: top row merges "Baseline" /
@@ -260,7 +253,7 @@ strip_band <- function(nm) nm %>%
   str_remove("^Volume Projections ") %>%
   str_remove("^Delta ?")
 
-grain_cols  <- c("Hospital", "Month", "Day")
+grain_cols  <- c("Hospital", "Year")
 base_cols   <- names(output_wide)[str_starts(names(output_wide), "Baseline ")]
 proj_cols   <- names(output_wide)[str_starts(names(output_wide), "Volume Projections ")]
 delta_cols  <- names(output_wide)[str_starts(names(output_wide), "Delta")]
@@ -297,17 +290,8 @@ addStyle(wb, "Output by Grain", hdr_style,  rows = 2, cols = 1:length(ordered_co
 freezePane(wb, "Output by Grain", firstActiveRow = 3)
 setColWidths(wb, "Output by Grain", cols = 1:length(ordered_cols), widths = "auto")
 
-# ---- other sheets (plain) ----
-for (nm in c("Collision Rate", "Collision by Hosp-Day", "Collision HospDay Wide",
-             "Collision Detail")) {
-  addWorksheet(wb, nm)
-}
-writeData(wb, "Collision Rate",         collision_rate)
-writeData(wb, "Collision by Hosp-Day",  collision_by_hosp_day)
-writeData(wb, "Collision HospDay Wide", collision_by_hosp_day_wide)
-writeData(wb, "Collision Detail",       collision_all)
 
-saveWorkbook(wb, paste0(file_location,"OR Modeling/Outputs/","or_capacity_scenario_results.xlsx"),
+saveWorkbook(wb, paste0(file_location,"OR Modeling/Outputs/","or_capacity_scenario_results ",Sys.time(),".xlsx"),
              overwrite = TRUE)
 
 

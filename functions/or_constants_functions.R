@@ -256,6 +256,17 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
   
   RECOVERABLE_THRESHOLD <- 180  # minutes (on the cascade-penalized gap value)
 
+  # How many minutes does interval [a_start, a_end] overlap [b_start, b_end]?
+  # The overlap runs from the later of the two starts to the earlier of the
+  # two ends; if that comes out negative the intervals don't touch -> 0.
+  # Works element-wise across columns; inputs can be POSIXct or numeric.
+  overlap_mins <- function(a_start, a_end, b_start, b_end) {
+    overlap_start <- if_else(a_start > b_start, a_start, b_start)  # later start
+    overlap_end   <- if_else(a_end   < b_end,   a_end,   b_end)    # earlier end
+    minutes       <- as.numeric(difftime(overlap_end, overlap_start, units = "mins"))
+    if_else(minutes > 0, minutes, 0)
+  }
+
   # Cascade-penalized minutes for each [win_start, win_end] interval.
   # Splits each interval across the staffing bands for its casc_loc and
   # weights every overlapping minute by that band's factor. Returns the
@@ -264,9 +275,13 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
     scored <- intervals %>% mutate(.iid = row_number())
     pen <- scored %>%
       inner_join(cascade_factor, by = "casc_loc", relationship = "many-to-many") %>%
-      mutate(s   = as.numeric(as_hms(format(win_start, "%H:%M:%S"))),
-             e   = as.numeric(as_hms(format(win_end,   "%H:%M:%S"))),
-             seg = pmax(0, pmin(e, b_end) - pmax(s, b_start)) / 60 * factor) %>%
+      mutate(win_s = as.numeric(as_hms(format(win_start, "%H:%M:%S"))),
+             win_e = as.numeric(as_hms(format(win_end,   "%H:%M:%S"))),
+             # minutes of this interval inside the band, scaled by staffing factor
+             band_start = if_else(win_s > b_start, win_s, b_start),  # later start
+             band_end   = if_else(win_e < b_end,   win_e, b_end),    # earlier end
+             band_secs  = if_else(band_end > band_start, band_end - band_start, 0),
+             seg        = band_secs / 60 * factor) %>%
       group_by(.iid) %>%
       summarise(pen_min = sum(seg), .groups = "drop")
     inner_join(scored, pen, by = ".iid") %>% select(-.iid)
@@ -279,12 +294,12 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
   # --- RAW metrics (all records, not penalized) -> Hospital x Month x Day ---
   raw_all <- base %>%
     mutate(
-      used_pt_min = pmax(0, as.numeric(difftime(
-        pmin(PATIENT_OUT_AND_SETUP_CLEANUP_END, PRIME_TIME_END),
-        pmax(PATIENT_IN_ROOM_DTTM, PRIME_TIME_START), units = "mins"))),
-      proc_pt_min = pmax(0, as.numeric(difftime(
-        pmin(PATIENT_OUT_ROOM_DTTM, PRIME_TIME_END),
-        pmax(PATIENT_IN_ROOM_DTTM, PRIME_TIME_START), units = "mins"))),
+      # prime-time minutes for the whole room hold (case + setup/cleanup) ...
+      used_pt_min = overlap_mins(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
+                                 PRIME_TIME_START, PRIME_TIME_END),
+      # ... and for the procedure alone (in-room to out-room)
+      proc_pt_min = overlap_mins(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM,
+                                 PRIME_TIME_START, PRIME_TIME_END),
       tat_pt_min  = used_pt_min - proc_pt_min,
       Hospital = casc_loc, Month = month(SURGERY_DATE), Day = day(SURGERY_DATE)
     ) %>%
@@ -302,8 +317,12 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
   ordered_cases <- base_rooms %>%
     group_by(ROOM_ID, SURGERY_DATE, casc_loc) %>%
     arrange(PATIENT_IN_ROOM_DTTM, .by_group = TRUE) %>%
-    mutate(busy_start = pmax(PATIENT_IN_ROOM_DTTM, PRIME_TIME_START),
-           busy_end   = pmin(PATIENT_OUT_AND_SETUP_CLEANUP_END, PRIME_TIME_END)) %>%
+    mutate(  # clip each case to the prime-time window
+      busy_start = if_else(PATIENT_IN_ROOM_DTTM > PRIME_TIME_START,
+                           PATIENT_IN_ROOM_DTTM, PRIME_TIME_START),           # later start
+      busy_end   = if_else(PATIENT_OUT_AND_SETUP_CLEANUP_END < PRIME_TIME_END,
+                           PATIENT_OUT_AND_SETUP_CLEANUP_END, PRIME_TIME_END) # earlier end
+    ) %>%
     filter(busy_end > busy_start) %>%
     ungroup()
 

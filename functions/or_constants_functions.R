@@ -243,7 +243,8 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
 
 # #################################################################
 # METRICS ENGINE  ----
-# Output grain: Hospital / Department / Surgeon / Month / Day.
+# Output grain: Hospital / Year. Raw metrics are mean-per-case; penalized
+# metrics are mean-per-room-day.
 # ONLY two things are penalized by the cascade staffing curve:
 #   - Prime Time Available Time  (the utilization denominator)
 #   - the gaps -> Recoverable / Non Recoverable
@@ -255,17 +256,6 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
 summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
   
   RECOVERABLE_THRESHOLD <- 180  # minutes (on the cascade-penalized gap value)
-
-  # How many minutes does interval [a_start, a_end] overlap [b_start, b_end]?
-  # The overlap runs from the later of the two starts to the earlier of the
-  # two ends; if that comes out negative the intervals don't touch -> 0.
-  # Works element-wise across columns; inputs can be POSIXct or numeric.
-  overlap_mins <- function(a_start, a_end, b_start, b_end) {
-    overlap_start <- if_else(a_start > b_start, a_start, b_start)  # later start
-    overlap_end   <- if_else(a_end   < b_end,   a_end,   b_end)    # earlier end
-    minutes       <- as.numeric(difftime(overlap_end, overlap_start, units = "mins"))
-    if_else(minutes > 0, minutes, 0)
-  }
 
   # Cascade-penalized minutes for each [win_start, win_end] interval.
   # Splits each interval across the staffing bands for its casc_loc and
@@ -291,23 +281,21 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
     filter(!is.na(overlap_primetime_procedure) | !is.na(overlap_primetime_setup)) %>%
     mutate(casc_loc = xwalk_loc(LOCATION_NAME))
   
-  # --- RAW metrics (all records, not penalized) -> Hospital x Month x Day ---
+  # --- RAW metrics (all records, not penalized), mean per case -> Hospital x Year ---
+  # Prime-time minutes come straight from the pre-built overlap intervals:
+  # procedure = case in-room to out-room; TAT = the following setup/cleanup.
   raw_all <- base %>%
     mutate(
-      # prime-time minutes for the whole room hold (case + setup/cleanup) ...
-      used_pt_min = overlap_mins(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
-                                 PRIME_TIME_START, PRIME_TIME_END),
-      # ... and for the procedure alone (in-room to out-room)
-      proc_pt_min = overlap_mins(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM,
-                                 PRIME_TIME_START, PRIME_TIME_END),
-      tat_pt_min  = used_pt_min - proc_pt_min,
-      Hospital = casc_loc, Month = month(SURGERY_DATE), Day = day(SURGERY_DATE)
+      proc_pt_min = int_length(overlap_primetime_procedure) / 60,
+      tat_pt_min  = int_length(overlap_primetime_setup) / 60,
+      used_pt_min = proc_pt_min + tat_pt_min,
+      Hospital = casc_loc, Month = month(SURGERY_DATE), Day = day(SURGERY_DATE), Year = year(SURGERY_DATE)
     ) %>%
-    group_by(Hospital, Month, Day) %>%
+    group_by(Hospital, Year) %>%
     summarise(`# Cases`                   = n(),
-              `Prime Time Used Time`      = sum(used_pt_min),
-              `Prime Time Procedure Time` = sum(proc_pt_min),
-              `Prime Time TAT`            = sum(tat_pt_min),
+              `Prime Time Used Time`      = mean(used_pt_min, na.rm = TRUE),
+              `Prime Time Procedure Time` = mean(proc_pt_min, na.rm = TRUE),
+              `Prime Time TAT`            = mean(tat_pt_min,  na.rm = TRUE),
               .groups = "drop")
   
   # --- PENALIZED gaps + available (room-assigned records only) ---
@@ -353,17 +341,17 @@ summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
     distinct(ROOM_ID, SURGERY_DATE, casc_loc) %>%
     left_join(rd_avail,  by = c("ROOM_ID", "SURGERY_DATE")) %>%
     left_join(gaps_pen,  by = c("ROOM_ID", "SURGERY_DATE")) %>%
-    mutate(Hospital = casc_loc, Month = month(SURGERY_DATE), Day = day(SURGERY_DATE)) %>%
-    group_by(Hospital, Month, Day) %>%
-    summarise(
-      `Prime Time Available Time`       = sum(coalesce(available_pt_min,   0)),
-      `Prime Time Recoverable Time`     = sum(coalesce(recoverable_min,    0)),
-      `Prime Time Non Recoverable Time` = sum(coalesce(nonrecoverable_min, 0)),
+    mutate(Hospital = casc_loc, Year = year(SURGERY_DATE)) %>%
+    group_by(Hospital, Year) %>%
+    summarise(  # mean per room-day across the year
+      `Prime Time Available Time`       = mean(coalesce(available_pt_min,   0)),
+      `Prime Time Recoverable Time`     = mean(coalesce(recoverable_min,    0)),
+      `Prime Time Non Recoverable Time` = mean(coalesce(nonrecoverable_min, 0)),
       .groups = "drop"
     )
   
   raw_all %>%
-    full_join(pen_by_grain, by = c("Hospital", "Month", "Day")) %>%
+    full_join(pen_by_grain, by = c("Hospital", "Year")) %>%
     mutate(across(c(`# Cases`, `Prime Time Used Time`, `Prime Time Procedure Time`,
                     `Prime Time TAT`, `Prime Time Available Time`,
                     `Prime Time Recoverable Time`, `Prime Time Non Recoverable Time`),

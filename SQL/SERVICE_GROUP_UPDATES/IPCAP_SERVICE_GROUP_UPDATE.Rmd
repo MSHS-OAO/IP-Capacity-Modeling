@@ -118,13 +118,13 @@ if (nrow(change) > 0) {
     select(LOC_NAME, EPIC_DEPT_ID, EXTERNAL_NAME, SERVICE_GROUP, VALID_FROM, VALID_TO)
   
   # updates current mappings and combine with changes
-  updatess <- current %>%
+  updates <- current %>%
     filter(EPIC_DEPT_ID %in% change$EPIC_DEPT_ID) %>%
     mutate(VALID_TO = Sys.Date() - 1) %>%
     rbind(change)
   
   # replace updatess and changes in current mappings
-  updatess <- current %>%
+  updates <- current %>%
     filter(!(EPIC_DEPT_ID %in% updatess$EPIC_DEPT_ID)) %>%
     rbind(updatess)
   

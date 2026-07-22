@@ -34,6 +34,88 @@ library(grid)
 library(ggtext)
 library(tidyverse)
 library(shadowtext)
+library(openxlsx)
+
+
+# MSHS brand palette
+mshs_cyan    <- "#06ABEB"
+mshs_magenta <- "#DC298D"
+mshs_violet  <- "#212070"
+mshs_gray    <- "#63666A"
+mshs_theme <- theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+                    axis.title = element_text(size = 12),
+                    axis.text = element_text(size = 10),
+                    axis.text.x = element_text(angle = 45, hjust = 1),
+                    legend.title = element_text(size = 12),
+                    legend.text = element_text(size = 8),
+                    strip.text = element_text(size = 12, face = "bold"),
+                    legend.margin = margin(l = 50,r = 50),
+                    panel.grid = element_blank())
+
+
+file_location <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and Optimization/Projects/System Operations/Capacity Modeling/"
+
+
+# #################################################################
+# CASCADE FACTOR CURVES  ----
+# Effective capacity per location x minute-of-day, from ORSchedules.
+# factor(minute) = rooms_open_in_band / peak_rooms_for_location.
+# Peak = max rooms that location ever staffs (the 1.0 reference).
+# e.g. MSH 51 rooms daytime -> 30 after 16:00 gives factor 30/51 = 0.588.
+# #################################################################
+
+# Location crosswalk: OR LOCATION_NAME -> cascade Location code (confirmed)
+loc_xwalk <- tribble(
+  ~location_pattern,         ~casc_loc,
+  "5 E 98TH ST AMB SUITE",   "5 E 98TH ST AMB SUITE",
+  "MSDC|MSDUS",              "MSBI",
+  "MSH",                     "MSH",
+  "MSW",                     "MSW",
+  "MSM",                     "MSM",
+  "MSQ",                     "MSQ",
+  "MSBI",                     "MSBI",
+  "MSB",                     "MSB",
+  "MSSN",                     "MSSN"
+  
+)
+xwalk_loc <- function(loc) {
+  out <- rep(NA_character_, length(loc))
+  for (i in seq_len(nrow(loc_xwalk))) {
+    hit <- is.na(out) & str_detect(loc, loc_xwalk$location_pattern[i])
+    out[hit] <- loc_xwalk$casc_loc[i]
+  }
+  out
+}
+
+
+to_sec <- function(x) {
+  as.numeric(as_hms(format(
+    lubridate::parse_date_time(x, orders = "I:M:S p"), "%H:%M:%S")))
+}
+
+
+# Build per-location stepwise factor table (seconds-of-day band bounds)
+cascade_factor <- read_xlsx(paste0(file_location, paste0("OR Modeling/SupplementData/","ORSchedules.xlsx")), sheet = "10-2025") %>%
+  filter(!is.na(Location), Location != "") %>%
+  # transmute(
+  #   casc_loc = Location,
+  #   b_start  = to_sec(`Time Start`),
+  #   b_end    = to_sec(`Time End`),
+  #   n_ors    = as.integer(`# ORs`)
+  # ) %>%
+  group_by(Location) %>%
+  mutate( peak = max(`# ORs`), 
+          factor = `# ORs` / peak,
+          b_start  = to_sec(`Time Start`),
+          b_end    = to_sec(`Time End`),
+          band_min = (b_end - b_start) / 60, capacity_min =  `# ORs` * band_min
+  ) %>%
+  ungroup() %>%
+  select(Location, `Time Start`,`Time End`, `# ORs`,factor,capacity_min)
+
+
+# cascade_bands <- cascade_factor %>%
+#   mutate(band_min = (b_end - b_start) / 60, capacity_min = n_ors * band_min)
 
 # get prime_time ---
 prime_time_location <- function(data) {
@@ -97,7 +179,7 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
       # PAT_MRN_ID %in% mrn_list,            
       WEEKEND_YN == "N",
       HOLIDAY_YN == "N",
-      # sql("OR_LOCATION NOT LIKE 'L&D%'"),
+      sql("OR_LOCATION NOT LIKE 'L&D%'"),
       CASE_STATUS == status
     ) %>%
     select(
@@ -172,84 +254,640 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
   
 }
 
-summary_metrics <- function(processed_or_cases){
+
+
+
+# #################################################################
+# METRICS ENGINE  ----
+# Output grain: Hospital / Year. Raw metrics are mean-per-case; penalized
+# metrics are mean-per-room-day.
+# ONLY two things are penalized by the cascade staffing curve:
+#   - Prime Time Available Time  (the utilization denominator)
+#   - the gaps -> Recoverable / Non Recoverable
+# Everything else (# Cases, Used, Procedure, TAT) is RAW clock time.
+# Utilization = RAW used / PENALIZED available, so running cases in
+# de-staffed hours pushes utilization up (can exceed 100% by design).
+# Recoverable threshold (>=180) applies to the penalized gap value.
+# #################################################################
+summary_metrics_weighted <- function(processed_or_cases, scenario_label) {
   
-  RECOVERABLE_THRESHOLD <- 180  # minutes
+  RECOVERABLE_THRESHOLD <- 180  # minutes (on the cascade-penalized gap value)
+
+
+  base <- processed_or_cases %>%
+    filter(!is.na(overlap_primetime_procedure) | !is.na(overlap_primetime_setup)) %>%
+    mutate(Location = xwalk_loc(LOCATION_NAME))
   
-  
-  baseline_data <- processed_or_cases %>%
-    filter(!is.na(overlap_primetime_procedure) | !is.na(overlap_primetime_setup)) %>% # get only primetime overlaping cases
+  # --- RAW metrics (all records, not penalized), mean per case -> Hospital x Year ---
+  # Prime-time minutes come straight from the pre-built overlap intervals:
+  # procedure = case in-room to out-room; TAT = the following setup/cleanup.
+  raw_all <- base %>%
     mutate(
-      proc_pt_min = coalesce(as.numeric(as.duration(overlap_primetime_procedure), "minutes"), 0),
-      tat_pt_min  = coalesce(as.numeric(as.duration(overlap_primetime_setup), "minutes"), 0),
-      used_pt_min = proc_pt_min + tat_pt_min
-    )
+      proc_pt_min = int_length(overlap_primetime_procedure) / 60,
+      tat_pt_min  = int_length(overlap_primetime_setup) / 60,
+      used_pt_min = coalesce(proc_pt_min, 0) + coalesce(tat_pt_min, 0),
+      Year = year(SURGERY_DATE)
+    ) %>%
+    # 1) total per location-day
+    group_by(Location, Year, SURGERY_DATE) %>%
+    summarise(cases_day = n(),
+              used_day   = sum(used_pt_min, na.rm = TRUE),
+              proc_day   = sum(proc_pt_min, na.rm = TRUE),
+              tat_day    = sum(tat_pt_min,  na.rm = TRUE),
+              .groups = "drop") %>%
+    # 2) mean across days
+    group_by(Location, Year) %>%
+    summarise(`# Cases`                   = sum(cases_day),          # total cases (count)
+              `Prime Time Used Time`      = mean(used_day),          # mean daily used
+              `Prime Time Procedure Time` = mean(proc_day),
+              `Prime Time TAT`            = mean(tat_day),
+              .groups = "drop")
   
-  # ---------------------------------------------------------------
-  # 2. ROOM-DAY level: available time + gap analysis for
-  #    recoverable vs non-recoverable
-  # ---------------------------------------------------------------
-  
-  
-  room_day <- baseline_data %>%
-    group_by(CLUSTER_NAME, LOCATION_NAME, ROOM_ID, SURGERY_DATE,
-             PRIME_TIME_START, PRIME_TIME_END) %>%
+  # --- PENALIZED gaps + available (room-assigned records only) ---
+  base_rooms <- base %>% filter(!is.na(ROOM_ID))
+
+  # busy intervals per room-day, clipped to prime time, ordered by in-room time
+  ordered_cases <- base_rooms %>%
+    group_by(ROOM_ID, SURGERY_DATE, Location) %>%
     arrange(PATIENT_IN_ROOM_DTTM, .by_group = TRUE) %>%
-    summarise(
-      n_cases     = n(),
-      proc_pt_min = sum(proc_pt_min),
-      tat_pt_min  = sum(tat_pt_min),
-      used_pt_min = sum(used_pt_min),
-      gaps = list({
-        pt_start <- first(PRIME_TIME_START)
-        pt_end   <- first(PRIME_TIME_END)
-        busy_start <- pmax(PATIENT_IN_ROOM_DTTM, pt_start)
-        busy_end   <- pmin(PATIENT_OUT_AND_SETUP_CLEANUP_END, pt_end)
-        keep <- busy_end > busy_start
-        bs <- busy_start[keep]; be <- busy_end[keep]
-        if (length(bs) == 0) { 
-          as.numeric(difftime(pt_end, pt_start, units = "mins"))
-        } else {
-          pmax(c(
-            as.numeric(difftime(bs[1], pt_start, units = "mins")),
-            if (length(bs) > 1)
-              as.numeric(difftime(bs[-1], be[-length(be)], units = "mins")),
-            as.numeric(difftime(pt_end, be[length(be)], units = "mins"))
-          ), 0)
-        }
-      }),
-      .groups = "drop"
+    mutate(  # clip each case to the prime-time window
+      case_order = row_number(),
+      first_case_start  = min(PATIENT_IN_ROOM_DTTM, na.rm = TRUE),
+      last_case_end_tat_incl  = max(PATIENT_OUT_AND_SETUP_CLEANUP_END, na.rm = TRUE),
+      previous_case_end = lag(PATIENT_OUT_AND_SETUP_CLEANUP_END, n = 1) 
+      
     ) %>%
-    rowwise() %>%
-    mutate(
-      available_pt_min   = as.numeric(difftime(PRIME_TIME_END, PRIME_TIME_START, units = "mins")),
-      recoverable_min    = sum(gaps[gaps >= RECOVERABLE_THRESHOLD]),
-      nonrecoverable_min = sum(gaps[gaps <  RECOVERABLE_THRESHOLD])
-    ) %>%
-    ungroup() %>%
-    select(-gaps) %>%
-    mutate(month = month(SURGERY_DATE),
-           day   = day(SURGERY_DATE))
+    select(ROOM_ID, 
+           SURGERY_DATE, 
+           Location, 
+           PATIENT_IN_ROOM_DTTM, 
+           PATIENT_OUT_AND_SETUP_CLEANUP_END,
+           PRIME_TIME_START, 
+           PRIME_TIME_END,
+           case_order,
+           first_case_start,
+           last_case_end_tat_incl,
+           previous_case_end) %>%
+    ungroup()
+
+  # All gaps in one pass: the complement of the busy intervals inside the
+  # prime-time window. For n busy intervals this yields n+1 candidate gaps
+  # (open -> first case, between cases, last case -> close); empty ones drop.
+  gaps <- ordered_cases %>%
+    mutate(gap_at_start = if_else(difftime(first_case_start,PRIME_TIME_START,units = "min")>0,
+                                  as.numeric(difftime(first_case_start,PRIME_TIME_START,units = "min")),0),
+           gap_between = if_else(difftime(PATIENT_IN_ROOM_DTTM,previous_case_end,units = "min")>0,
+                                 as.numeric(difftime(PATIENT_IN_ROOM_DTTM,previous_case_end,units = "min")),0),
+           gap_end = if_else(difftime(PRIME_TIME_END,last_case_end_tat_incl,units = "min")>0,
+                             as.numeric(difftime(PRIME_TIME_END,last_case_end_tat_incl,units = "min")),0))
   
-  # =================================================================
-  # 4. Baseline summary table
-  # =================================================================
-  baseline_table <- room_day %>%
-    group_by(Cluster = CLUSTER_NAME,
-             # Department = PRIMARY_SURGEON_SPECIALTY,
-             LOCATION_NAME,
-             `OR Room` = ROOM_ID,
-             SURGERY_DATE) %>%
-    summarise(
-      `# Cases`                         = sum(n_cases),
-      `Prime Time Used Time`            = sum(used_pt_min),
-      `Prime Time Available Time`       = sum(available_pt_min),
-      `Prime Time Utilization`          = `Prime Time Used Time` / `Prime Time Available Time`,
-      `Prime Time Recoverable Time`     = sum(recoverable_min),
-      `Prime Time Non Recoverable Time` = sum(nonrecoverable_min),
-      `Prime Time Procedure Time`       = sum(proc_pt_min),
-      `Prime Time TAT`                  = sum(tat_pt_min),
-      .groups = "drop"
+  gaps_start <- gaps %>%
+    select(ROOM_ID,
+           SURGERY_DATE,
+           Location,
+           PRIME_TIME_START,
+           first_case_start,gap_at_start) %>%
+    unique() %>%
+    mutate(Recoverable = if_else(gap_at_start >=RECOVERABLE_THRESHOLD,
+                                 'Recoverable Start',
+                                 'Non Recoverable Start')) %>%
+    group_by(ROOM_ID,
+             SURGERY_DATE,
+             Location) %>%
+    pivot_wider(
+      id_cols = c("ROOM_ID",
+                  "SURGERY_DATE",
+                  "Location"),
+      names_from = Recoverable,
+      values_from = gap_at_start,
+      values_fn = sum
+    )%>%
+    replace_na(list(`Recoverable Start` = 0, `Non Recoverable Start` = 0))
+  
+  gaps_mid <- gaps %>%
+    filter(case_order > 1) %>%                       # a between-gap exists only from case 2 on
+    select(ROOM_ID,
+           SURGERY_DATE, Location, case_order, gap_between) %>%
+    unique() %>%
+    drop_na()%>%
+    mutate(Recoverable = if_else(gap_between >=RECOVERABLE_THRESHOLD,
+                                 'Recoverable Mid',
+                                 'Non Recoverable Mid'))%>%
+    group_by(ROOM_ID,
+             SURGERY_DATE,
+             Location) %>%
+    pivot_wider(
+      id_cols = c("ROOM_ID",
+                  "SURGERY_DATE",
+                  "Location"),
+      names_from = Recoverable,
+      values_from = gap_between,
+      values_fn = sum
     ) %>%
+    replace_na(list(`Recoverable Mid` = 0, `Non Recoverable Mid` = 0))
+  
+  gaps_end <- gaps %>%
+    select(ROOM_ID,
+           SURGERY_DATE,
+           Location,
+           PRIME_TIME_END,
+           last_case_end_tat_incl,gap_end) %>%
+    unique() %>%
+    left_join(cascade_factor) %>%
+    select(ROOM_ID,
+           SURGERY_DATE,
+           Location,
+           PRIME_TIME_END,
+           last_case_end_tat_incl,
+           gap_end,
+           `Time Start`,`Time End`,factor) %>%
+    mutate(gap_end_interval = interval(last_case_end_tat_incl, PRIME_TIME_END, tzone = "America/New_York"),
+           cascade_start = as.POSIXct(paste0(SURGERY_DATE," ",`Time Start`),format="%Y-%m-%d %I:%M:%S %p"),
+           cascade_end =  as.POSIXct(paste0(SURGERY_DATE," ",`Time End`),format="%Y-%m-%d %I:%M:%S %p"),
+           cascade_interval = interval(cascade_start, cascade_end, tzone = "America/New_York")) %>%
+    select(ROOM_ID,
+           SURGERY_DATE,
+           Location,
+           factor,
+           cascade_interval,
+           gap_end_interval) %>%
+    mutate(overlap_primetime_gap     = intersect(cascade_interval, gap_end_interval),
+           gap_length = int_length(overlap_primetime_gap) / 60,
+           gap_length_normalized = gap_length*factor) %>%
+    filter(!is.na(overlap_primetime_gap))%>%
+    mutate(Recoverable = if_else(gap_length_normalized >=RECOVERABLE_THRESHOLD,
+                                 'Recoverable End',
+                                 'Non Recoverable End'))%>%
+    group_by(ROOM_ID,
+             SURGERY_DATE,
+             Location) %>%
+    pivot_wider(
+      id_cols = c("ROOM_ID",
+                  "SURGERY_DATE",
+                  "Location"),
+      names_from = Recoverable,
+      values_from = gap_length_normalized,
+      values_fn = sum
+    )%>%
+    replace_na(list(`Recoverable End` = 0, `Non Recoverable End` = 0))
+  
+  
+  gaps_summary_room <- gaps_mid %>%
+    left_join(gaps_start) %>%
+    left_join(gaps_end) %>%
+    mutate(across(where(is.numeric), ~ coalesce(.x, 0)),
+           Recoverable = `Recoverable End` + `Recoverable Mid` +`Recoverable Start`,
+           `Non Recoverable` = `Non Recoverable End` + `Non Recoverable Mid` +`Non Recoverable Start`,
+           Year = year(SURGERY_DATE)) %>%
+    select(ROOM_ID, SURGERY_DATE, Year, Location, Recoverable, `Non Recoverable`) %>%
+    group_by(Location,Year) %>%
+    summarise(`Prime Time Recoverable Time` = mean(Recoverable),
+              `Prime Time Non Recoverable Time` = mean(`Non Recoverable`),
+              .groups = "drop")
+    
+
+  # penalized available time = the prime-time window itself, one per room-day
+  rd_avail <- base_rooms %>%
+    distinct(SURGERY_DATE, Location,PRIME_TIME_START, PRIME_TIME_END) %>%
+    left_join(cascade_factor) %>%
+    mutate(cascade_start = as.POSIXct(paste0(SURGERY_DATE," ",`Time Start`),format="%Y-%m-%d %I:%M:%S %p"),
+           cascade_end =  as.POSIXct(paste0(SURGERY_DATE," ",`Time End`),format="%Y-%m-%d %I:%M:%S %p"),
+           cascade_interval = interval(cascade_start, cascade_end, tzone = "America/New_York"),
+           primetime_interval = interval(PRIME_TIME_START, PRIME_TIME_END, tzone = "America/New_York"),
+           cascade_primetime_interval = intersect(cascade_interval, primetime_interval)) %>%
+    select(Location, SURGERY_DATE,cascade_interval,primetime_interval,cascade_primetime_interval,`# ORs`) %>%
+    filter(!is.na(cascade_primetime_interval)) %>%
+    mutate(minutes = int_length(cascade_primetime_interval)/60,
+           `Prime Time Available Time` = minutes*`# ORs`,
+           Year = year(SURGERY_DATE)) %>%
+    group_by(Location, SURGERY_DATE, Year) %>%
+    summarise(avail_day = sum(`Prime Time Available Time`), .groups = "drop") %>%
+    group_by(Location, Year) %>%
+    summarise(`Prime Time Available Time` = mean(avail_day), .groups = "drop")  
+  
+  
+  # combine everything
+  out <- raw_all %>%
+    left_join(rd_avail,          by = c("Location","Year")) %>%
+    left_join(gaps_summary_room, by = c("Location","Year")) %>%
+    mutate(across(c(`# Cases`, `Prime Time Used Time`, `Prime Time Procedure Time`,
+                    `Prime Time TAT`, `Prime Time Available Time`,
+                    `Prime Time Recoverable Time`, `Prime Time Non Recoverable Time`),
+                  ~ coalesce(.x, 0)),
+           `Prime Time Utilization` = if_else(`Prime Time Available Time` > 0,
+                                              `Prime Time Used Time` / `Prime Time Available Time`, NA_real_),
+           scenario = scenario_label) %>%
+    rename(Hospital = Location) %>%
     relocate(`Prime Time Utilization`, .after = `# Cases`)
+  
+  out
+}
+
+
+
+
+# #################################################################
+# PROJECTED band ----  baseline metrics adjusted by the dummy pool.
+# New-volume minutes (per Hospital x Month x Day) EAT recoverable first:
+#   recoverable_proj = max(0, recoverable_base - dummy_min)
+#   used_proj        = used_base + dummy_min ;  available unchanged
+# Overflow beyond recoverable is NOT shown here (lives in collision sheet).
+# #################################################################
+project_with_volume <- function(baseline_out, dummy_cases, scenario_label) {
+  
+  dummy_pool <- prime_time_location(dummy_cases) %>%
+    mutate(
+      PrimeTimeInterval  = interval(PRIME_TIME_START, PRIME_TIME_END, tzone = "America/New_York"),
+      ProcedureInterval  = interval(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, tzone = "America/New_York"),
+      SetupTimeInterval  = interval(PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END, tzone = "America/New_York"),
+      overlap_primetime_procedure = intersect(PrimeTimeInterval, ProcedureInterval),
+      overlap_primetime_setup     = intersect(PrimeTimeInterval, SetupTimeInterval),
+      proc_pt_min = int_length(overlap_primetime_procedure) / 60,
+      tat_pt_min  = int_length(overlap_primetime_setup) / 60,
+      used_pt_min = coalesce(proc_pt_min, 0) + coalesce(tat_pt_min, 0),
+      Year = year(SURGERY_DATE),
+      Hospital = Location, Month = month(SURGERY_DATE)
+    ) %>%
+    group_by(Hospital, Year, SURGERY_DATE) %>%
+    summarise(cases_day = n(),
+              used_day   = sum(used_pt_min, na.rm = TRUE),
+              proc_day   = sum(proc_pt_min, na.rm = TRUE),
+              tat_day    = sum(tat_pt_min,  na.rm = TRUE),
+              .groups = "drop") %>%
+    # 2) mean across days
+    group_by(Hospital, Year) %>%
+    summarise(dummy_cases    = sum(cases_day),          # total cases (count)
+              dummy_min      = mean(used_day),          # mean daily used
+              dummy_min_proc_time = mean(proc_day),
+              dummy_min_tat_time            = mean(tat_day),
+              .groups = "drop")
+  
+  baseline_out %>%
+    select(-scenario) %>%
+    full_join(dummy_pool, by = c("Hospital", "Year")) %>%
+    mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+    mutate(
+      `# Cases`              = `# Cases` + dummy_cases,
+      `Prime Time Used Time` = `Prime Time Used Time` + dummy_min,
+      # new volume eats recoverable first
+      `Prime Time Recoverable Time` = pmax(0, `Prime Time Recoverable Time` - dummy_min),
+      `Prime Time Procedure Time` = `Prime Time Procedure Time` + dummy_min_proc_time,
+      `Prime Time TAT` = `Prime Time TAT` + dummy_min_tat_time,
+      `Prime Time Utilization` = if_else(`Prime Time Available Time` > 0,
+                                         `Prime Time Used Time` / `Prime Time Available Time`, NA_real_),
+      scenario = scenario_label
+    ) %>%
+    select(-dummy_cases, -dummy_min,-dummy_min_proc_time,-dummy_min_tat_time) %>%
+    relocate(`Prime Time Utilization`, .after = `# Cases`)
+}
+
+
+# =================================================================
+# Demand Engine
+# =================================================================
+demand_baseline <- function(baseline_or_data){
+  baseline_or_data <- baseline_or_data %>%
+    mutate(hour_surgery = map2(floor_date(PATIENT_IN_ROOM_DTTM, "hour"),
+                       floor_date(PATIENT_OUT_ROOM_DTTM, "hour"),
+                       ~ seq(.x, .y, by = "hour"))) %>%
+    unnest(hour_surgery)
+  
+  baseline_or_data_sample <- baseline_or_data %>%
+    select(LOCATION_NAME, OR_CASE_ID,SURGERY_DATE,ProcedureInterval,hour_surgery,ROOM_ID) %>%
+    mutate(hour_surgery = hour(hour_surgery)) %>%
+    distinct() 
+  
+  demand_daily <- baseline_or_data_sample%>%
+    mutate(Location = xwalk_loc(LOCATION_NAME),
+           YearReporting = year(SURGERY_DATE)) %>%
+    group_by(Location,SURGERY_DATE,hour_surgery,YearReporting) %>%
+    summarise(RoomsInUse = n_distinct(ROOM_ID))
+  
+  baseline_or_data_sample_jan_28 <- baseline_or_data_sample %>%
+    filter(SURGERY_DATE == as.Date('2025-01-28','%Y-%m-%d'),
+           str_detect(LOCATION_NAME, "MSH"),
+           hour_surgery == 9) 
+  
+  demand_yearly <- demand_daily%>%
+    group_by(Location,hour_surgery,YearReporting) %>%
+    summarise(RoomsInUse = mean(RoomsInUse))
+  
+  cascade_factor_capacity <- cascade_factor %>%
+    select(Location, `Time Start`, `Time End`, `# ORs`) %>%
+    mutate(START = parse_date_time(paste0(Sys.Date(), " ", `Time Start`),
+                                   orders = "Ymd I:M:S p", tz = "America/New_York"),
+           END   = parse_date_time(paste0(Sys.Date(), " ", `Time End`),
+                                   orders = "Ymd I:M:S p", tz = "America/New_York"),
+           Capacity = `# ORs`) %>%
+    select(Location, START, END, Capacity)%>%
+    mutate(hour_surgery = map2(floor_date(START, "hour"),
+                               floor_date(END, "hour"),
+                               ~ seq(.x, .y, by = "hour"))) %>%
+    unnest(hour_surgery) %>%
+    mutate(hour_surgery = hour(hour_surgery)) %>%
+    select(Location, hour_surgery, Capacity)
+  
+  
+  demand_yearly <-demand_yearly %>%
+    left_join(cascade_factor_capacity)
+  
+}
+
+
+
+
+
+
+
+
+capacity_and_utlization_data <- function(or_cases_data,Scenario="Baseline"){
+  
+  
+  
+  
+  if(Scenario == "Baseline"){
+    
+    
+    
+    or_cases_data <- or_cases_data %>%
+      mutate(Location = xwalk_loc(LOCATION_NAME))%>%
+      select(LOCATION_NAME,Location,SURGERY_DATE, OR_CASE_ID,
+             PATIENT_IN_ROOM_DTTM,
+             PATIENT_OUT_ROOM_DTTM, ROOM_ID,Weekday) %>%
+      # filter(!str_like(ROOM_ID, "%ENDO%")) %>%
+      distinct(OR_CASE_ID,.keep_all = TRUE) 
+    
+    
+    distinct_rooms <- or_cases_data %>%
+      distinct(Location,ROOM_ID) %>%
+      group_by(Location) %>%
+      mutate(`# Rooms` = row_number()) %>%
+      ungroup()
+
+    
+    # Calculate OR rooms per hour
+    intervals <- or_cases_data %>%
+      mutate(
+        start_hour = floor_date(PATIENT_IN_ROOM_DTTM, "hour"),
+        end_hour   = floor_date(PATIENT_OUT_ROOM_DTTM - seconds(1), "hour"),
+        hour_list  = map2(start_hour, end_hour, seq, by = "hour")
+      ) %>%
+      unnest(hour_list) %>%
+      mutate(
+        interval_start = hour_list,
+        interval_end   = hour_list + hours(1),
+        SURGERY_DATE   = format(as.Date(SURGERY_DATE))
+      )
+    
+      
+      # 3. Group by location, room, and the specific hour
+      # group_by(Location,ROOM_ID, OR_CASE_ID, SURGERY_DATE,Weekday, hour_of_day = hour_list) %>%
+      # # 4. Count unique OR rooms used during that hour (will result in 1 or 0)
+      # summarise(
+      #   rooms_used = n_distinct(ROOM_ID), 
+      #   .groups = "drop"
+      # )
+    
+  
+    
+    rooms_per_hour <- intervals %>%
+      distinct(Location, SURGERY_DATE, ROOM_ID, interval_start,interval_end,Weekday) %>%
+      mutate(time_interval = paste0(hour(interval_start), "-", hour(interval_end))) %>%
+      group_by(Location, SURGERY_DATE,Weekday, time_interval) %>%
+      summarise(rooms_used = n_distinct(ROOM_ID), .groups = "drop") %>%
+      mutate(Model = Scenario)
+    
+  
+    
+    
+    # denominator = n_distinct(intervals_out$SURGERY_DATE)
+    
+    intervals_out_location <- rooms_per_hour %>%
+      filter(!Weekday %in% c('Sunday','Saturday')) %>%
+      group_by(Location,Weekday,time_interval) %>%
+      summarise(demand = mean(rooms_used))
+    
+    
+    capacity <- cascade_factor %>%
+      mutate(
+        # 1. Parse AM/PM strings into time objects
+        start_time = parse_date_time(`Time Start`, orders = "HMS p"),
+        end_time   = parse_date_time(`Time End`, orders = "HMS p"),
+        
+        # 2. Extract starting and ending hours
+        h_start = hour(start_time),
+        h_end   = hour(end_time),
+        
+        # FIX: If it ends at 23:59, treat it as hour 24 so the sequence includes 23
+        h_end = if_else(h_end == 23 & minute(end_time) == 59, 24, h_end),
+        
+        # Handle overnight edge case (where end hour is numerically less than start hour)
+        h_end = if_else(h_end < h_start, h_end + 24, h_end),
+        
+        # 3. Generate a sequence of hours for each row
+        start_hour = map2(h_start, h_end, ~seq(.x, .y - 1))
+      ) %>%
+      # 4. Unnest the list to expand into individual hour rows
+      unnest(start_hour) %>%
+      mutate(
+        # Normalize hours back to 0-23 format
+        start_hour = start_hour %% 24,
+        
+        # 5. Create the hourly interval string
+        time_interval = paste0(start_hour, "-", (start_hour + 1) %% 24)
+      ) %>%
+      group_by(Location,time_interval) %>%
+      mutate(capacity_ors = `# ORs`) %>%
+      # Clean up temporary processing columns
+      select(Location,time_interval,capacity_ors)
+    
+    intervals_out_location <- intervals_out_location %>%
+      left_join(capacity)
+    
+    
+    return(list(
+      demand_capacity = intervals_out_location,
+      Volume  = volume
+    ))
+    
+    
+    
+    
+    
+  }else{ # Measure the room demand via case minutes for new volume
+    
+    
+    intervals <- or_cases_data %>%
+      mutate(
+        # Sequence goes from the floored start hour to the floored end hour
+        hour_start = floor_date(PATIENT_IN_ROOM_DTTM, "hour"),
+        hour_end   = floor_date(PATIENT_OUT_AND_SETUP_CLEANUP_END, "hour"),
+        
+        break_points = map2(hour_start, hour_end, ~ seq.POSIXt(from = .x, to = .y, by = "1 hour"))
+      ) %>%
+      unnest(break_points) %>%
+      group_by(Location,OR_CASE_ID) %>%
+      mutate(
+        # First row gets actual start time, others get the clean hour
+        interval_start = if_else(row_number() == 1, PATIENT_IN_ROOM_DTTM, break_points),
+        
+        # Last row gets actual end time, others get the next clean hour boundary
+        interval_end   = if_else(row_number() == n(), PATIENT_OUT_AND_SETUP_CLEANUP_END, break_points + hours(1)),
+        
+        # Calculate duration
+        minutes = as.numeric(difftime(interval_end, interval_start, units = "mins"))
+      ) %>%
+      select(OR_CASE_ID, Location,SURGERY_DATE, interval_start, interval_end, minutes,hour_start,hour_end)
+    
+    
+    intervals_out <- intervals %>%
+      mutate(time_interval = paste0(hour(interval_start), "-", hour(interval_start + hours(1)))) %>%
+      group_by(Location,SURGERY_DATE,time_interval) %>%
+      summarise(demand = sum(minutes))
+    
+    
+    # denominator = n_distinct(intervals_out$SURGERY_DATE)
+    
+    intervals_out_location <- intervals_out %>%
+      group_by(Location,time_interval) %>%
+      summarise(demand = sum(demand)/denominator)
+    
+    
+    capacity <- cascade_factor %>%
+      mutate(
+        # 1. Parse AM/PM strings into time objects
+        start_time = parse_date_time(`Time Start`, orders = "HMS p"),
+        end_time   = parse_date_time(`Time End`, orders = "HMS p"),
+        
+        # 2. Extract starting and ending hours
+        h_start = hour(start_time),
+        h_end   = hour(end_time),
+        
+        # FIX: If it ends at 23:59, treat it as hour 24 so the sequence includes 23
+        h_end = if_else(h_end == 23 & minute(end_time) == 59, 24, h_end),
+        
+        # Handle overnight edge case (where end hour is numerically less than start hour)
+        h_end = if_else(h_end < h_start, h_end + 24, h_end),
+        
+        # 3. Generate a sequence of hours for each row
+        start_hour = map2(h_start, h_end, ~seq(.x, .y - 1))
+      ) %>%
+      # 4. Unnest the list to expand into individual hour rows
+      unnest(start_hour) %>%
+      mutate(
+        # Normalize hours back to 0-23 format
+        start_hour = start_hour %% 24,
+        
+        # 5. Create the hourly interval string
+        time_interval = paste0(start_hour, "-", (start_hour + 1) %% 24)
+      ) %>%
+      group_by(Location,time_interval) %>%
+      mutate(capacity_ors = `# ORs`) %>%
+      # Clean up temporary processing columns
+      select(Location,time_interval,capacity_ors)
+    
+    intervals_out_location <- intervals_out_location %>%
+      left_join(capacity)
+    
+    
+    return(list(
+      demand_capacity = intervals_out_location,
+      Volume  = volume
+    ))
+    
+    
+  }
+  
+  
+}
+
+
+
+
+collision_rate <- function(or_cases_data){
+  
+  or_cases_data <- or_cases_data %>%
+    mutate(Location = xwalk_loc(LOCATION_NAME))%>%
+    select(Location,OR_CASE_ID,SURGERY_DATE,
+           PATIENT_IN_ROOM_DTTM,
+           PATIENT_OUT_AND_SETUP_CLEANUP_END)
+  
+  
+  
+  intervals <- or_cases_data %>%
+    mutate(
+      # Sequence goes from the floored start hour to the floored end hour
+      hour_start = floor_date(PATIENT_IN_ROOM_DTTM, "hour"),
+      hour_end   = floor_date(PATIENT_OUT_AND_SETUP_CLEANUP_END, "hour"),
+      
+      break_points = map2(hour_start, hour_end, ~ seq.POSIXt(from = .x, to = .y, by = "1 hour"))
+    ) %>%
+    unnest(break_points) %>%
+    group_by(Location,OR_CASE_ID) %>%
+    mutate(
+      # First row gets actual start time, others get the clean hour
+      interval_start = if_else(row_number() == 1, PATIENT_IN_ROOM_DTTM, break_points),
+      
+      # Last row gets actual end time, others get the next clean hour boundary
+      interval_end   = if_else(row_number() == n(), PATIENT_OUT_AND_SETUP_CLEANUP_END, break_points + hours(1)),
+      
+      # Calculate duration
+      minutes = as.numeric(difftime(interval_end, interval_start, units = "mins"))
+    ) %>%
+    select(OR_CASE_ID, Location,SURGERY_DATE, interval_start, interval_end, minutes,hour_start,hour_end)
+  
+  
+  intervals_out <- intervals %>%
+    mutate(time_interval = paste0(hour(interval_start), "-", hour(interval_start + hours(1)))) %>%
+    group_by(Location,SURGERY_DATE,time_interval) %>%
+    summarise(demand = sum(minutes))
+  
+  
+  # intervals_out_location <- intervals_out %>%
+  #   group_by(Location,time_interval) %>%
+  #   summarise(demand = mean(demand, na.rm = TRUE))
+  
+  
+  capacity <- cascade_factor %>%
+    mutate(
+      # 1. Parse AM/PM strings into time objects
+      start_time = parse_date_time(`Time Start`, orders = "HMS p"),
+      end_time   = parse_date_time(`Time End`, orders = "HMS p"),
+      
+      # 2. Extract starting and ending hours
+      h_start = hour(start_time),
+      h_end   = hour(end_time),
+      
+      # FIX: If it ends at 23:59, treat it as hour 24 so the sequence includes 23
+      h_end = if_else(h_end == 23 & minute(end_time) == 59, 24, h_end),
+      
+      # Handle overnight edge case (where end hour is numerically less than start hour)
+      h_end = if_else(h_end < h_start, h_end + 24, h_end),
+      
+      # 3. Generate a sequence of hours for each row
+      start_hour = map2(h_start, h_end, ~seq(.x, .y - 1))
+    ) %>%
+    # 4. Unnest the list to expand into individual hour rows
+    unnest(start_hour) %>%
+    mutate(
+      # Normalize hours back to 0-23 format
+      start_hour = start_hour %% 24,
+      
+      # 5. Create the hourly interval string
+      time_interval = paste0(start_hour, "-", (start_hour + 1) %% 24)
+    ) %>%
+    group_by(Location,time_interval) %>%
+    mutate(capacity_min = `# ORs`*60) %>%
+    # Clean up temporary processing columns
+    select(Location,time_interval,capacity_min)
+  
+  collision_out <- intervals_out %>%
+    left_join(capacity) %>%
+    mutate(Exceeded = if_else(demand < capacity_min, FALSE, TRUE)) %>%
+    group_by(Location, SURGERY_DATE, time_interval) %>%
+    summarise(ExceededCount = sum(Exceeded)) %>%
+    group_by(Location,time_interval) %>%
+    summarise(CollisionRate = mean(ExceededCount, na.rm = TRUE))
+  
+  
 }

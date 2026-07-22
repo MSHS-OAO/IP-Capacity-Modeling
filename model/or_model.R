@@ -69,7 +69,8 @@ new_volume_cases <- data_volume_projections_ip %>%
   distinct(ENCOUNTER_NO, MSMRN, parent_mrn, NEW_ADMIT_DT_SRC, NEW_DSCH_DT_SRC) %>%
   inner_join(parent_templates, by = "parent_mrn") %>%
   mutate(
-    SURGERY_DATE          = NEW_ADMIT_DT_SRC + surgery_offset,
+    SURGERY_DATE_OFFSET          = NEW_ADMIT_DT_SRC + surgery_offset,
+    SURGERY_DATE = get_valid_date(SURGERY_DATE_OFFSET, holidays_vec = mshs_holiday),
     PATIENT_IN_ROOM_DTTM  = as.POSIXct(paste(SURGERY_DATE, time_of_day), tz = "America/New_York"),
     PATIENT_OUT_ROOM_DTTM = PATIENT_IN_ROOM_DTTM + minutes(as.integer(MINUTES_IN_ROOM_TO_OUT_ROOM)),
     OR_CASE_ID  = paste0("NEW_", ENCOUNTER_NO),
@@ -77,7 +78,9 @@ new_volume_cases <- data_volume_projections_ip %>%
   )
 
 
-
+# new_volume_cases_surgery_date_diff <- new_volume_cases %>%
+#   filter(SURGERY_DATE_OFFSET==SURGERY_DATE)%>%
+#   select(PATIENT_MRN,OR_CASE_ID,SURGERY_DATE_OFFSET,SURGERY_DATE)
 
 
 # =================================================================
@@ -220,8 +223,23 @@ output_wide <- output_all %>%
 # print(collision_rate_plot)
 
 
+new_volume_cases_raw_subset <- new_volume_cases_raw %>%
+  select(OR_CASE_ID,
+         SURGERY_DATE,
+         ProcedureInterval,
+         PATIENT_IN_ROOM_DTTM, 
+         PATIENT_OUT_ROOM_DTTM,
+         LOCATION_NAME)
 
+# =================================================================
+# Baseline Demand
+# =================================================================
+baseline_demand <- demand_baseline(or_cases_baseline)
 
+# =================================================================
+# Baseline and New Volume Demand 
+# =================================================================
+baseline_demand <- demand_new_volume_baseline(baseline_new_volume)
 
 
 
@@ -245,7 +263,7 @@ for (site in unique_sites) {
     geom_col(aes(y = demand, fill = Scenario), position = "dodge", alpha = 0.85, width = 0.7) +
     
     # B. Capacity Limit: Continuous line overlay spanning all intervals
-    geom_line(aes(y = capacity_min, group = 1, color = "Capacity Limit"), linewidth = 0.7) +
+    geom_line(aes(y = capacity_min, group = 1, color = "Staffed Capacity"), linewidth = 0.7) +
     # geom_point(aes(y = capacity_min, color = "Capacity Limit"), size = 2) +
     
     # C. Manual Scale mappings for MSHS branding
@@ -267,7 +285,7 @@ for (site in unique_sites) {
   
   # Optional: Automatically save each plot as a separate PNG file
   # file_name <- paste0("demand_capacity_plot_", site, ".png")
-  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_vs_capacity_", site, ".png"), p,
+  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_vs_staffed_", site, ".png"), p,
          width = 10, height = 6, dpi = 150)
 }
 # =================================================================

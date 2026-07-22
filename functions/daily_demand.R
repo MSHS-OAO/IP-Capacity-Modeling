@@ -1,7 +1,4 @@
-daily_demand <- function(datasets_processed,
-                                   level = c("SERVICE_GROUP", "EXTERNAL_NAME")) {
-  
-  level <- match.arg(level)
+daily_demand <- function(datasets_processed) {
   
   daily_demand <- lapply(names(datasets_processed), function(dataset) {
     
@@ -12,7 +9,7 @@ daily_demand <- function(datasets_processed,
     df <- df %>%
       #filter(!is.na(EXTERNAL_NAME)) %>%
       group_by(
-        FACILITY_MSX, ENCOUNTER_NO, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
+        FACILITY_MSX, ENCOUNTER_NO, MSMRN, DSCH_DT_SRC, ADMIT_DT_SRC, MSDRG_CD_SRC, LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
         DSCH_UNIT_DESC_MSX, EXTERNAL_NAME, SERVICE_GROUP, SERVICE_MONTH,
         SERVICE_DATE, LOS_NO_SRC
       ) %>%
@@ -37,29 +34,84 @@ daily_demand <- function(datasets_processed,
       df <- los_reduction_sim(df)
     }
     
+    
+    df
+
+  })
+  
+  names(daily_demand) <- names(datasets_processed)
+  return(daily_demand)
+}
+
+
+
+
+
+daily_demand_grouper <- function(
+    daily_demand,
+    level = c("SERVICE_GROUP", "UNIT", "ENCOUNTER")
+) {
+  
+  level <- match.arg(level)
+  
+  lapply(daily_demand, function(df) {
+    
     if (level == "SERVICE_GROUP") {
       
-      df <- df %>%
-        group_by(LOC_NAME, ATTENDING_VERITY_REPORT_SERVICE,
-                 SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
+      df %>%
+        group_by(
+          LOC_NAME,
+          SERVICE_GROUP,
+          SERVICE_MONTH,
+          SERVICE_DATE
+        ) %>%
         summarise(
           DAILY_DEMAND = sum(BED_CHARGES, na.rm = TRUE),
           .groups = "drop"
         )
       
-    } else if (level == "EXTERNAL_NAME") {
+    } else if (level == "UNIT") {
       
-      df <- df %>%
-        group_by(LOC_NAME, SERVICE_GROUP, EXTERNAL_NAME,
-                 SERVICE_MONTH, SERVICE_DATE) %>%
+      df %>%
+        group_by(
+          LOC_NAME,
+          SERVICE_GROUP,
+          EXTERNAL_NAME,
+          SERVICE_MONTH,
+          SERVICE_DATE
+        ) %>%
         summarise(
           DAILY_DEMAND = sum(BED_CHARGES, na.rm = TRUE),
           .groups = "drop"
-        ) 
-      } # else if (level == "ENCOUNTER") {}  (FOR DHEERAJ)
-
+        )
+      
+    } else if (level == "ENCOUNTER") {
+      
+      df %>%
+        mutate(
+          ADMIT_DOW = toupper(
+            lubridate::wday(ADMIT_DT_SRC, label = TRUE)
+          )
+        ) %>%
+        select(any_of(c(
+          "ENCOUNTER_NO",
+          "MSMRN",
+          "LOC_NAME",
+          "SERVICE_GROUP",
+          "EXTERNAL_NAME",
+          "ADMIT_DT_SRC",
+          "DSCH_DT_SRC",
+          "NEW_ADMIT_DT_SRC",
+          "NEW_DSCH_DT_SRC",
+          "SERVICE_DATE",
+          "SERVICE_MONTH",
+          "DSCH_UNIT_DESC_MSX",
+          "ATTENDING_VERITY_REPORT_SERVICE",
+          "MSDRG_CD_SRC",
+          "ADMIT_DOW"
+        ))) %>%
+        distinct()
+    }
+    
   })
-  
-  
-  return(daily_demand)
 }

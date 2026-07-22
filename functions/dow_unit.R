@@ -1,24 +1,23 @@
-ip_comparison_dow_unit_function <- function(datasets_processed, unit_capacity_adjustments = NULL) {
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(readr)
+library(DBI)
+library(dbplyr)
+
+ip_comparison_dow_unit_function <- function(daily_demand, unit_capacity_adjustments = NULL) {
   
-  library(dplyr)
-  library(tidyr)
-  library(lubridate)
-  library(readr)
-  library(DBI)
-  library(dbplyr)
-  
-  stopifnot(is.list(datasets_processed))
-  stopifnot(all(c("baseline", "scenario") %in% names(datasets_processed)))
   
   dow_order <- c("MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY")
+  
+  #group by unit level and mutate DAILY_DEMAND on that level
+  daily_demand_unit <- daily_demand_grouper(daily_demand, level = "UNIT")
   
   bed_cap_unit_wide <- unit_capacity(
     unit_capacity_adjustments = unit_capacity_adjustments,
     level = "EXTERNAL_NAME"
   )
   
-  daily_demand_unit <- daily_demand(datasets_processed, level = "EXTERNAL_NAME")
-  names(daily_demand_unit) <- names(datasets_processed)
   
   daily_demand_unit <- lapply(names(daily_demand_unit), function(dataset) {
     daily_demand_unit[[dataset]] %>%

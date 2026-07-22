@@ -24,23 +24,21 @@ ip_utilization_model <- function(generator = "", n_simulations = 1) {
     
     #call daily_demand function
     daily_demand <- daily_demand(
-      datasets_processed,
-      level = "SERVICE_GROUP"
+      datasets_processed
     )
     
+    #group daily_demand by service_group for ip model
+    daily_demand_service_group <- daily_demand_grouper(daily_demand, level = "SERVICE_GROUP")
     
-    names(daily_demand) <- names(datasets_processed)
     
     # compute daily average utilization and days over 85 and 95 %
-    ip_utilization <- lapply(names(daily_demand), function(dataset) {
+    ip_utilization <- lapply(names(datasets_processed), function(dataset) {
       
       # load dataset based on name of list element
-      df <- daily_demand[[dataset]]
+      df <- daily_demand_service_group[[dataset]]
       
       # calculat daily averages of bed demand and join bed capacity data
       df <- df %>%
-        group_by(LOC_NAME, SERVICE_GROUP, SERVICE_MONTH, SERVICE_DATE) %>%
-        summarise(DAILY_DEMAND = sum(DAILY_DEMAND, na.rm = TRUE), .groups = "drop") %>%
         collect() %>%
         left_join(bed_cap, by = c("LOC_NAME" = "LOC_NAME", 
                                   "SERVICE_GROUP" = "SERVICE_GROUP",
@@ -129,10 +127,14 @@ ip_utilization_model <- function(generator = "", n_simulations = 1) {
              AVG_PERCENT_85_SCENARIO,AVG_SD_BASELINE,AVG_SD_SCENARIO) %>%
       filter(AVG_DAILY_DEMAND_BASELINE >= 1)
     
+    #trigger dow_service_group and dow_unit
+    
     ip_comparison_dow_service_group <- ip_comparison_dow_service_group_function(ip_comparison_daily)
-    ip_comparison_dow_unit <- ip_comparison_dow_unit_function(datasets_processed, unit_capacity_adjustments)
+    ip_comparison_dow_unit <- ip_comparison_dow_unit_function(daily_demand, unit_capacity_adjustments)
     # omitting shut down units (bed capacity = 0 in Tisch capacity projections)
     ip_comparison_dow_unit <- na.omit(ip_comparison_dow_unit)
+    
+    
     return(list(
       ip_comparison_daily = ip_comparison_daily,
       ip_comparison_monthly = ip_comparison_monthly,

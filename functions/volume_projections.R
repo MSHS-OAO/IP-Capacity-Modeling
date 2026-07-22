@@ -78,36 +78,38 @@ volume_projections <- function(df, vol_projections_file) {
         group_modify(~ {
           d <- .x$SERVICE_DATE
           d_ok <- d[!is.na(d)]
-          
+
           if (length(d_ok) == 0) {
             return(.x)
           }
-          
+
           min_date <- min(d_ok)
           day_offset <- as.integer(d - min_date)
-          
+
           los_days <- max(day_offset, na.rm = TRUE) + 1
           if (!is.finite(los_days) || los_days <= 0) {
             return(.x)
           }
-          
+
           max_start <- service_date_range[2] - (los_days - 1)
           if (!is.finite(max_start) || max_start < service_date_range[1]) {
             return(.x)
           }
-          
+
           start_date <- sample(seq(service_date_range[1], max_start, by = "day"), 1)
           .x$SERVICE_DATE <- start_date + day_offset
-          
+          .x$NEW_ADMIT_DT_SRC <- min(.x$SERVICE_DATE, na.rm = TRUE)
+          .x$NEW_DSCH_DT_SRC  <- max(.x$SERVICE_DATE, na.rm = TRUE) + days(1)
           .x
         }) %>%
         ungroup() %>%
         mutate(
           SERVICE_MONTH = floor_date(SERVICE_DATE, unit = "month"),
-          ENCOUNTER_NO  = paste0(ENCOUNTER_NO, "_", SAMPLE_INSTANCE)
+          ENCOUNTER_NO  = paste0(ENCOUNTER_NO, "_", SAMPLE_INSTANCE),
+          MSMRN         = paste0(MSMRN, "_", SAMPLE_INSTANCE)
         ) %>%
-        select(-SAMPLE_INSTANCE)      
-      
+        select(-SAMPLE_INSTANCE)
+
       #add sampled/randomized rows back to df
       df <- bind_rows(
         df,

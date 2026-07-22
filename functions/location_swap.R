@@ -57,28 +57,52 @@ location_swap <- function(hospitals, services,percentage_to_hosp1,percentage_to_
       
       # get sample rows of hospital i that are also getting rerouted
       reroute_data <- scenario %>% filter(ENCOUNTER_NO %in% enc_set)
+
+      #assign service groups while keeping the overall percentages as close to exact as possible
+      pct <- reroute_service_group_percent[[hosp]]
+      pct <- pct / sum(pct)
+
+      encounter_days <- reroute_data %>%
+        distinct(ENCOUNTER_NO, SERVICE_DATE)
+
+      number_of_days <- nrow(encounter_days)
+
+      if (number_of_days > 0) {
+
+        exact_counts <- number_of_days * pct
+        counts <- floor(exact_counts)
+        remainder <- number_of_days - sum(counts)
+
+        if (remainder > 0) {
+          remainder_order <- order(
+            exact_counts - counts,
+            decreasing = TRUE
+          )
+
+          counts[remainder_order[seq_len(remainder)]] <-counts[remainder_order[seq_len(remainder)]] + 1
+        }
+
+        new_service_groups <- rep(
+          names(counts),
+          times = counts
+        )
+
+        encounter_days$NEW_SERVICE_GROUP <- sample(new_service_groups,size = number_of_days,replace = FALSE)
+
+        reroute_data <- reroute_data %>%
+          left_join(
+            encounter_days,
+            by = c("ENCOUNTER_NO", "SERVICE_DATE")
+          ) %>%
+          mutate(
+            SERVICE_GROUP = NEW_SERVICE_GROUP
+          ) %>%
+          select(-NEW_SERVICE_GROUP)
+      }
       
-      # normalize rerouting percentages to 100 if needed
-      reroute_service_group_percent[[hosp]] <- 
-        reroute_service_group_percent[[hosp]]/sum(reroute_service_group_percent[[hosp]])
-      
-      # determine how many rows will be edited for each service group
-      counts <- round(nrow(reroute_data) * reroute_service_group_percent[[hosp]])
-      remainder <- nrow(reroute_data) - sum(counts)
-      max_service <- names(which.max(counts))
-      counts[max_service] <- counts[max_service] + remainder
-      
-      # randomly apply new service groupings at desired percentages
-      new_service <- sample(unlist(mapply(rep, names(counts), counts)))
-      
-      # overwrite rerouted df
-      reroute_data$SERVICE_GROUP <- new_service
-      
-      # add rerouted data to new demand df
-      new_demand <- rbind(new_demand, reroute_data)
+      new_demand <- bind_rows(new_demand, reroute_data)
     }
     
-    # remove original routing of patients and replace with rerouted data
     scenario <- scenario %>%
       filter(!(ENCOUNTER_NO %in% c(hosp_1_sampled_encounters, hosp_2_sampled_encounters))) %>%
       rbind(new_demand)  

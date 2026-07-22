@@ -10,8 +10,8 @@ data_volume_projections_ip <- read_xlsx(paste0(file_location,paste0("archive/",f
 
 
 # max admin date, mrn list and min discharge date
-min_admin_date <- format(min(data_baseline_ip$ADMIT_DT_SRC),'%Y-%m-%d')
-max_discharge_date <- format(max(data_baseline_ip$DSCH_DT_SRC),'%Y-%m-%d')
+min_admin_date <- format(min(data_baseline_ip$SERVICE_DATE),'%Y-%m-%d')
+max_discharge_date <- format(max(data_baseline_ip$SERVICE_DATE),'%Y-%m-%d')
 mrn_list_ip <- data_baseline_ip %>%
   mutate( MSMRN = trimws(MSMRN)) %>%
   select(MSMRN,ADMIT_DT_SRC,DSCH_DT_SRC) %>%
@@ -19,7 +19,7 @@ mrn_list_ip <- data_baseline_ip %>%
 
 
 # Get OR data based on ipdata ----
-or_cases_baseline <- get_or_data(sched_start_date = "2025-01-01", sched_end_date = "2025-12-31",status = 'Completed', mrn_list = mrn_list_ip)
+or_cases_baseline <- get_or_data(sched_start_date = min_admin_date, sched_end_date = max_discharge_date,status = 'Completed', mrn_list = mrn_list_ip)
 
 
 
@@ -136,108 +136,138 @@ output_wide <- output_all %>%
   )
 
 
-# ===============================================================
-# Demand Plots
-# ===============================================================
+
+# ==============================================
+# Collision - Is demand on par with capacity?
+# Capacity comes from cascade data
+# ==============================================
+
+# or_cases_baseline_demand <- or_cases_baseline%>%
+#   select(LOCATION_NAME,OR_CASE_ID,SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM, ROOM_ID, Weekday) %>%
+#   filter(!is.na(PATIENT_OUT_ROOM_DTTM)) %>%
+#   filter(PATIENT_IN_ROOM_DTTM<=PATIENT_OUT_ROOM_DTTM)
+# 
+# collision_data_baseline <- capacity_and_utlization_data(or_cases_baseline_demand,Scenario="Baseline")
+# 
+# baseline_and_new_volume_data_raw <- new_volume_cases_raw %>%
+#   select(LOCATION_NAME,OR_CASE_ID,SURGERY_DATE,
+#          PATIENT_IN_ROOM_DTTM,
+#          PATIENT_OUT_ROOM_DTTM)%>%
+#   filter(!is.na(PATIENT_OUT_ROOM_DTTM)) 
+# 
+# 
+# baseline_and_new_volume_data_raw <- bind_rows(or_cases_baseline_demand,
+#                                               baseline_and_new_volume_data_raw)
+# 
+# collision_data_baseline_and_new_volume <- capacity_and_utlization_data(baseline_and_new_volume_data_raw,Scenario="Volume Projections",denominator=n_distinct(or_cases_baseline_demand$SURGERY_DATE))
+# 
+# 
+# volume_base<-collision_data_baseline[["Volume"]]
+# volume_new<-collision_data_baseline_and_new_volume[["Volume"]]
+# collision_data_baseline <- collision_data_baseline[["demand_capacity"]] %>%
+#   mutate(Scenario =  "Baseline")
+# collision_data_baseline_and_new_volume <- collision_data_baseline_and_new_volume[["demand_capacity"]] %>%
+#   mutate(Scenario =  "Volume Projections")
+# 
+# demand_capacity_aggregated <- bind_rows(collision_data_baseline,
+#                                         collision_data_baseline_and_new_volume) %>%
+#   filter(!is.na(Location))
+# 
+# 
+# # ==============================================
+# # Collision Rate - How often are we exceeding capacity
+# # Capacity comes from cascade data
+# # ==============================================
+# collision_rate_baseline <- collision_rate(or_cases_baseline)
+# collision_rate_baseline_and_new_volume <- collision_rate(baseline_and_new_volume_data_raw)
+# 
+# collision_rate_baseline <- collision_rate_baseline %>%
+#   mutate(Scenario =  "Baseline")
+# collision_rate_baseline_and_new_volume <- collision_rate_baseline_and_new_volume %>%
+#   mutate(Scenario =  "Volume Projections")
+# 
+# collision_rate_aggregated <- bind_rows(collision_rate_baseline,
+#                                        collision_rate_baseline_and_new_volume) %>%
+#   filter(!is.na(Location))
+# 
+# 
+# 
+# # =================================================================
+# # Plots - Collision and Demand
+# # =================================================================
+# 
+# 
+# 
+# 
+# collision_rate_plot <-ggplot(collision_rate_aggregated_plot, aes(x = time_interval, y = CollisionRate, fill = Scenario)) +
+#   geom_col(position = "dodge", width = 0.7) +
+#   
+#   # 'axes = "all"' guarantees labels appear on all wrapped facet charts
+#   facet_wrap(~Location, ncol = 1, scales = "free_x", axes = "all") + 
+#   
+#   scale_fill_manual(values = c("Baseline" = mshs_violet, "Volume Projections" = mshs_cyan)) +
+#   labs(
+#     title = "Collision Rate - How often does demand exceed capacity?",
+#     x     = "Interval",
+#     y     = "Collision Rate",
+#     fill  = "Scenario"
+#   ) +
+#   theme_minimal() + # Sets structural panel default rules
+#   mshs_theme       # Applies custom MSHS visual rules
+# 
+# print(collision_rate_plot)
 
 
-or_cases_baseline_demand <- or_cases_baseline %>%
-  select(OR_CASE_ID,PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
-         PRIME_TIME_START, PRIME_TIME_END,ProcedureInterval, SetupTimeInterval,PrimeTimeInterval,SURGERY_DATE,LOCATION_NAME)
-
-or_cases_new_volume_demand <- new_volume_cases_raw %>%
-  select(OR_CASE_ID,PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM, PATIENT_OUT_AND_SETUP_CLEANUP_END,
-         PRIME_TIME_START, PRIME_TIME_END,ProcedureInterval, SetupTimeInterval,PrimeTimeInterval,SURGERY_DATE,LOCATION_NAME)
-
-or_cases_new_volume_baseline_demand <- bind_rows(or_cases_new_volume_demand,or_cases_baseline_demand)
-
-baseline_primetime_cases <- or_cases_baseline %>%
-  filter(!is.na(overlap_primetime_procedure))
-distinct_dates <- n_distinct(baseline_primetime_cases$SURGERY_DATE)
-
-demand_plot_baseline <- demand_function(or_cases_baseline_demand, baseline_dates = distinct_dates)
-demand_plot_baseline_new_volume <- demand_function(or_cases_new_volume_baseline_demand,baseline_dates = distinct_dates)
-
-demand_plot_baseline <- demand_plot_baseline %>%
-  rename(baseline_demand = avg_or_cases)
-
-demand_plot_baseline_new_volume <- demand_plot_baseline_new_volume %>%
-  rename(newvolume_demand = avg_or_cases)
-
-demand <- demand_plot_baseline %>%
-  left_join(demand_plot_baseline_new_volume)
 
 
-# =================================================================
-# Plots
-# ================================================================
-
-# build the stacked long frame: Baseline + Increment (new - baseline)
-demand_stack <- demand %>%
-  mutate(new_volume = pmax(0, newvolume_demand - baseline_demand)) %>%
-  select(Location, surgery_hour,
-         Baseline = baseline_demand, `New Volume` = new_volume) %>%
-  tidyr::pivot_longer(c(Baseline, `New Volume`),
-                      names_to = "part", values_to = "demand") %>%
-  mutate(part = factor(part, levels = c("New Volume", "Baseline")))  # baseline on bottom
-
-# staffed-room capacity per hour (from cascade)
-capacity_hourly <- cascade_factor %>%
-  mutate(
-    h_start = hour(parse_date_time(`Time Start`, "I:M:S p")),
-    h_end   = hour(parse_date_time(`Time End`,   "I:M:S p"))
-  ) %>%
-  rowwise() %>%
-  mutate(hr = list(seq(h_start, max(h_start, h_end - 1)))) %>%
-  unnest(hr) %>% ungroup() %>%
-  group_by(Location = Location, surgery_hour = hr) %>%
-  summarise(capacity = max(`# ORs`), .groups = "drop")
 
 
-stack_cols <- c("Baseline" = mshs_violet, "New Volume" = mshs_cyan)
 
-sites <- sort(unique(demand_stack$Location))
-for (site in sites) {
-  ds <- demand_stack    %>% filter(Location == site, surgery_hour>6, surgery_hour<=17)
-  cl <- capacity_hourly %>% filter(Location == site,surgery_hour>6, surgery_hour<=17)
+unique_sites <- unique(demand_capacity_aggregated$Location)
+
+# 2. Loop through each site to generate and save individual plots
+for (site in unique_sites) {
   
-  # per-site scaling factor from baseline vs increment maxima
-  base_max <- max(ds$demand[ds$part == "Baseline"],  na.rm = TRUE)
-  inc_max  <- max(ds$demand[ds$part == "New Volume"], na.rm = TRUE)
-  scaling_factor <- 5
+  # Filter data for the current site and sort time intervals chronologically
+  site_data <- demand_capacity_aggregated %>% 
+    filter(Location == site) %>%
+    mutate(
+      start_hour = as.numeric(sub("-.*", "", time_interval)),
+      time_interval = reorder(time_interval, start_hour)
+    )
   
-  # plotting height: baseline as-is, increment scaled up; keep real value for labels
-  ds_plot <- ds %>%
-    mutate(plot_h     = if_else(part == "New Volume", demand * scaling_factor, demand),
-           real_value = demand,
-           part = factor(part, levels = c("New Volume", "Baseline")))  # baseline on bottom
-  
-  p <- ggplot(ds_plot, aes(surgery_hour, plot_h, fill = part)) +
-    geom_col(width = 0.8) +
-    geom_step(data = cl, aes(surgery_hour, capacity),
-              inherit.aes = FALSE, linetype = "dashed",
-              color = mshs_gray, linewidth = 0.8) +
-    # value labels: REAL numbers, placed at each segment's stacked midpoint
-    geom_text(aes(label = if_else(real_value >= 0.05, sprintf("%.1f", real_value), "")),
-              position = position_stack(vjust = 0.5),
-              size = 3, color = "white") +
-    scale_y_continuous(
-      name = "Avg # Cases",
-      breaks = sort(unique(cl$capacity)), 
+  # Construct the correct layered chart structure
+  p <- ggplot(site_data, aes(x = time_interval)) +
+    
+    # A. Demand Bars: Different colors for each Scenario ('position = "dodge"' places them side-by-side)
+    geom_col(aes(y = demand, fill = Scenario), position = "dodge", alpha = 0.85, width = 0.7) +
+    
+    # B. Capacity Limit: Continuous line overlay spanning all intervals
+    geom_line(aes(y = capacity_min, group = 1, color = "Capacity Limit"), linewidth = 0.7) +
+    # geom_point(aes(y = capacity_min, color = "Capacity Limit"), size = 2) +
+    
+    # C. Manual Scale mappings for MSHS branding
+    # Expand or change the values here if you have more than two scenarios
+    scale_fill_manual(name = "Demand Scenario", values = c("Baseline" = mshs_violet, "Volume Projections" = mshs_cyan)) +
+    scale_color_manual(name = "Threshold", values = c("Capacity Limit" = mshs_magenta)) +
+    
+    # Labels & Styling
+    labs(
+      title = paste0("OR Capacity Vs Demand (Location: ", site, ")"),
+      x     = "Time of Day (24h Format)",
+      y     = "Total Minutes"
     ) +
-    scale_x_continuous(breaks = seq(0, 24, 1)) +
-    scale_fill_manual(name = "", values = c("Baseline" = mshs_violet, "New Volume" = mshs_cyan),
-                      breaks = c("Baseline", "New Volume")) +
-    labs(title = paste0(site, ": hourly OR demand \u2014 baseline + new volume"),
-         x = "Hour of day") +
-    theme_gray(base_size = 13) +
-    theme(legend.position = "top",
-          plot.title = element_text(face = "bold", color = mshs_violet),
-          axis.title.y.right = element_text(color = mshs_cyan),
-          axis.text.y.right  = element_text(color = mshs_cyan),
-          panel.grid = element_blank())
+    theme_minimal() + 
+    mshs_theme
   
-  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_stacked_", site, ".png"), p,
+  # Print the plot to your RStudio viewer session
+  print(p)
+  
+  # Optional: Automatically save each plot as a separate PNG file
+  # file_name <- paste0("demand_capacity_plot_", site, ".png")
+  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_vs_capacity_", site, ".png"), p,
          width = 10, height = 6, dpi = 150)
 }
 # =================================================================

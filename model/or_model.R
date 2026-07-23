@@ -79,7 +79,7 @@ new_volume_cases <- data_volume_projections_ip %>%
 
 
 # new_volume_cases_surgery_date_diff <- new_volume_cases %>%
-#   filter(SURGERY_DATE_OFFSET==SURGERY_DATE)%>%
+#   filter(SURGERY_DATE_OFFSET!=SURGERY_DATE)%>%
 #   select(PATIENT_MRN,OR_CASE_ID,SURGERY_DATE_OFFSET,SURGERY_DATE)
 
 
@@ -231,6 +231,8 @@ new_volume_cases_raw_subset <- new_volume_cases_raw %>%
          PATIENT_OUT_ROOM_DTTM,
          LOCATION_NAME)
 
+
+
 # =================================================================
 # Baseline Demand
 # =================================================================
@@ -239,54 +241,71 @@ baseline_demand <- demand_baseline(or_cases_baseline)
 # =================================================================
 # Baseline and New Volume Demand 
 # =================================================================
-baseline_demand <- demand_new_volume_baseline(baseline_new_volume)
+new_volume_demand <- demand_new_volume(new_volume_cases_raw_subset, scenario = "Volume Projections")
+
+# =================================================================
+# Aggregated demamd
+# =================================================================
+demand_capacity_aggregated <- bind_rows(baseline_demand,
+                                        new_volume_demand)
+demand_capacity_aggregated <- demand_capacity_aggregated %>%
+  filter(YearReporting!=2026)
 
 
 
-unique_sites <- unique(demand_capacity_aggregated$Location)
+# ================= OR Capacity vs Demand (stacked) =======================
+BAR_W <- 0.7
 
-# 2. Loop through each site to generate and save individual plots
-for (site in unique_sites) {
+for (site in unique(demand_capacity_aggregated$Location)) {
   
-  # Filter data for the current site and sort time intervals chronologically
-  site_data <- demand_capacity_aggregated %>% 
-    filter(Location == site) %>%
-    mutate(
-      start_hour = as.numeric(sub("-.*", "", time_interval)),
-      time_interval = reorder(time_interval, start_hour)
-    )
+  site_data <- demand_capacity_aggregated %>%
+    filter(Location == site, hour_surgery %in% 7:19) %>%
+    group_by(hour_surgery, Scenario) %>%
+    summarise(RoomsInUse = sum(RoomsInUse, na.rm = TRUE),
+              Capacity   = max(Capacity,   na.rm = TRUE),
+              .groups    = "drop") %>%
+    mutate(Scenario = factor(Scenario,
+                             levels = c("Volume Projections", "Baseline")))
   
-  # Construct the correct layered chart structure
-  p <- ggplot(site_data, aes(x = time_interval)) +
+  cap_data <- site_data %>%
+    group_by(hour_surgery) %>%
+    summarise(Capacity = max(Capacity, na.rm = TRUE), .groups = "drop") %>%
+    mutate(xmin = hour_surgery - 0.5, xmax = hour_surgery + 0.5)
+  
+  p <- ggplot() +
+    geom_col(data = site_data,
+             aes(x = hour_surgery, y = RoomsInUse, fill = Scenario),
+             position = position_stack(reverse = FALSE), width = BAR_W) +
     
-    # A. Demand Bars: Different colors for each Scenario ('position = "dodge"' places them side-by-side)
-    geom_col(aes(y = demand, fill = Scenario), position = "dodge", alpha = 0.85, width = 0.7) +
+    geom_text(data = site_data,
+              aes(x = hour_surgery, y = RoomsInUse,
+                  label = round(RoomsInUse, 1), group = Scenario),
+              position = position_stack(vjust = 0.5, reverse = FALSE),
+              size = 2.4, fontface = "bold", color = "white") +
     
-    # B. Capacity Limit: Continuous line overlay spanning all intervals
-    geom_line(aes(y = capacity_min, group = 1, color = "Staffed Capacity"), linewidth = 0.7) +
-    # geom_point(aes(y = capacity_min, color = "Capacity Limit"), size = 2) +
+    geom_segment(data = cap_data,
+                 aes(x = xmin, xend = xmax, y = Capacity, yend = Capacity,
+                     color = "Staffed Capacity"),
+                 linewidth = 0.7) +
     
-    # C. Manual Scale mappings for MSHS branding
-    # Expand or change the values here if you have more than two scenarios
-    scale_fill_manual(name = "Demand Scenario", values = c("Baseline" = mshs_violet, "Volume Projections" = mshs_cyan)) +
-    scale_color_manual(name = "Threshold", values = c("Capacity Limit" = mshs_magenta)) +
-    
-    # Labels & Styling
-    labs(
-      title = paste0("OR Capacity Vs Demand (Location: ", site, ")"),
-      x     = "Time of Day (24h Format)",
-      y     = "Total Minutes"
-    ) +
-    theme_minimal() + 
+    scale_fill_manual(name   = "Demand Scenario",
+                      values = c("Baseline"           = mshs_violet,
+                                 "Volume Projections" = mshs_cyan),
+                      breaks = c("Baseline", "Volume Projections")) +
+    scale_color_manual(name = "Threshold",
+                       values = c("Staffed Capacity" = mshs_magenta)) +
+    scale_x_continuous(breaks = seq(0, 23, 2)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(title = paste0("OR Capacity Vs Demand (Location: ", site, ")"),
+         x = "Time of Day (24h Format)", y = "Rooms in Use") +
+    theme_minimal() +
     mshs_theme
   
-  # Print the plot to your RStudio viewer session
   print(p)
   
-  # Optional: Automatically save each plot as a separate PNG file
-  # file_name <- paste0("demand_capacity_plot_", site, ".png")
-  ggsave(paste0(file_location,"OR Modeling/Outputs/DemandPlots/", "demand_vs_staffed_", site, ".png"), p,
-         width = 10, height = 6, dpi = 150)
+  ggsave(paste0(file_location, "OR Modeling/Outputs/DemandPlots/",
+                "demand_vs_staffed_v5_", site, ".png"), p,
+         width = 12, height = 6, dpi = 150)
 }
 # =================================================================
 # Write outputs (openxlsx, with merged band headers) ----

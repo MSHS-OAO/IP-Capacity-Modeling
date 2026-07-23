@@ -67,7 +67,7 @@ file_location <- "/SharedDrive/deans/Presidents/HSPI-PM/Operations Analytics and
 # Location crosswalk: OR LOCATION_NAME -> cascade Location code (confirmed)
 loc_xwalk <- tribble(
   ~location_pattern,         ~casc_loc,
-  "5 E 98TH ST AMB SUITE",   "5 E 98TH ST AMB SUITE",
+  "5 E 98TH ST AMB SUITE",   "MSH",
   "MSDC|MSDUS",              "MSBI",
   "MSH",                     "MSH",
   "MSW",                     "MSW",
@@ -88,11 +88,17 @@ xwalk_loc <- function(loc) {
 }
 
 
-#Remove Good Friday from MSHS Holidays
-nyse_holidays <- as.Date(holidayNYSE(year = 1990:2100))
-good_friday <- as.Date(GoodFriday())
-mshs_holiday <- nyse_holidays[good_friday != nyse_holidays]
+#Remove Good Friday from MSHS Holidays and Add Black Friday
+yrs <- 1990:2100
 
+nyse_holidays <- as.Date(holidayNYSE(year = yrs))
+good_friday   <- as.Date(GoodFriday(year = yrs))
+black_friday  <- as.Date(USThanksgivingDay(year = yrs)) + 1
+
+mshs_holiday <- sort(unique(c(
+  nyse_holidays[!nyse_holidays %in% good_friday],
+  black_friday
+)))
 
 # 2. Define the shifting function
 get_valid_date <- function(start_date, holidays_vec = mshs_holiday) {
@@ -100,7 +106,7 @@ get_valid_date <- function(start_date, holidays_vec = mshs_holiday) {
   
   # Keep looping randomly if the date is a holiday, Saturday, or Sunday
   while (new_date %in% holidays_vec || wday(new_date) %in% c(1, 7)) {
-    random_shift <- sample(c(-5:5), 1) # Pick a random number of days between -5 and 5
+    random_shift <- sample(c(1:5), 1) # Pick a random number of days between -5 and 5
     new_date <- start_date + days(random_shift)
   }
   return(new_date)
@@ -248,6 +254,11 @@ get_or_data <- function(sched_start_date = '2025-01-01', sched_end_date = '2025-
     ungroup()
     
   schedule_data_ip <- schedule_data_ip %>%
+    mutate(SURGERY_DATE = as.Date(SURGERY_DATE)) %>%
+    filter(!SURGERY_DATE %in% mshs_holiday,
+           !wday(SURGERY_DATE) %in% c(1, 7),
+           # Day after and before Christmas
+           !(month(SURGERY_DATE) %in% c(12) & day(SURGERY_DATE) %in% c(24,26,31)))%>%
     mutate(across(c(PATIENT_IN_ROOM_DTTM, PATIENT_OUT_ROOM_DTTM),
                   ~ force_tz(.x, tzone = "America/New_York"))) %>%
     group_by(ROOM_ID) %>%
@@ -580,7 +591,8 @@ demand_baseline <- function(baseline_or_data){
     mutate(Location = xwalk_loc(LOCATION_NAME),
            YearReporting = year(SURGERY_DATE)) %>%
     group_by(Location,SURGERY_DATE,hour_surgery,YearReporting) %>%
-    summarise(RoomsInUse = n_distinct(ROOM_ID))
+    summarise(RoomsInUse = n_distinct(ROOM_ID)) %>%
+    distinct()
   
   # baseline_or_data_sample_jan_28 <- baseline_or_data_sample %>%
   #   filter(SURGERY_DATE == as.Date('2025-01-28','%Y-%m-%d'),
@@ -597,6 +609,7 @@ demand_baseline <- function(baseline_or_data){
                                    orders = "Ymd I:M:S p", tz = "America/New_York"),
            END   = parse_date_time(paste0(Sys.Date(), " ", `Time End`),
                                    orders = "Ymd I:M:S p", tz = "America/New_York"),
+           END =  END - minutes(1),
            Capacity = `# ORs`) %>%
     select(Location, START, END, Capacity)%>%
     mutate(hour_surgery = map2(floor_date(START, "hour"),
@@ -604,8 +617,7 @@ demand_baseline <- function(baseline_or_data){
                                ~ seq(.x, .y, by = "hour"))) %>%
     unnest(hour_surgery) %>%
     mutate(hour_surgery = hour(hour_surgery)) %>%
-    select(Location, hour_surgery, Capacity)
-  
+    select(Location, hour_surgery, Capacity)  
   
   demand_yearly <-demand_yearly %>%
     left_join(cascade_factor_capacity) %>%
@@ -616,7 +628,7 @@ demand_baseline <- function(baseline_or_data){
 # =================================================================
 # Demand Engine - Scenario
 # =================================================================
-demand_new_volume_baseline <- function(new_volume_or_cases){
+demand_new_volume<- function(new_volume_or_cases,scenario = "Scenario"){
   new_volume_or_cases <- new_volume_or_cases %>%
     mutate(hour_surgery = map2(floor_date(PATIENT_IN_ROOM_DTTM, "hour"),
                                floor_date(PATIENT_OUT_ROOM_DTTM, "hour"),
@@ -652,6 +664,7 @@ demand_new_volume_baseline <- function(new_volume_or_cases){
                                    orders = "Ymd I:M:S p", tz = "America/New_York"),
            END   = parse_date_time(paste0(Sys.Date(), " ", `Time End`),
                                    orders = "Ymd I:M:S p", tz = "America/New_York"),
+           END =  END - minutes(1),
            Capacity = `# ORs`) %>%
     select(Location, START, END, Capacity)%>%
     mutate(hour_surgery = map2(floor_date(START, "hour"),
@@ -664,7 +677,7 @@ demand_new_volume_baseline <- function(new_volume_or_cases){
   
   demand_yearly <-demand_yearly %>%
     left_join(cascade_factor_capacity) %>%
-    mutate(Scenario = "Scenario")
+    mutate(Scenario = scenario)
   
 }
 

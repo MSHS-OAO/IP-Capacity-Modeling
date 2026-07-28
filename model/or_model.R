@@ -294,12 +294,13 @@ for (site in unique(demand_capacity_aggregated$Location)) {
                       breaks = c("Baseline", "Volume Projections")) +
     scale_color_manual(name = "Threshold",
                        values = c("Staffed Capacity" = mshs_magenta)) +
-    scale_x_continuous(breaks = seq(0, 23, 2)) +
+    scale_x_continuous(breaks = seq(7, 19, 1)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-    labs(title = paste0("OR Capacity Vs Demand (Location: ", site, ")"),
-         x = "Time of Day (24h Format)", y = "Rooms in Use") +
+    labs(title = paste0("OR Staffed Capacity Vs Demand (Location: ", site, ")"),
+         x = "Time of Day (24h Format)", y = "Room Demand") +
     theme_minimal() +
-    mshs_theme
+    mshs_theme +
+    theme(axis.text.x = element_text(angle = 0))
   
   print(p)
   

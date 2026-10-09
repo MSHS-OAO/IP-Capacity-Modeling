@@ -40,7 +40,12 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       FACILITY_MSX == "BIP" ~ "MSBI",
       FACILITY_MSX == "RVT" ~ "MSW",
       FACILITY_MSX == "STL" ~ "MSM",
-      TRUE ~ FACILITY_MSX))
+      TRUE ~ FACILITY_MSX)) %>%
+  filter(
+    SERVICE_DATE >= as.Date("2025-01-01"),
+    SERVICE_DATE <= as.Date("2025-12-31"),
+    FACILITY_MSX != "MSSN"
+  )
 
 #pool NA SERVICE_GROUP vals as "Other"
 baseline <- baseline %>%
@@ -108,6 +113,9 @@ dow_counts <- table(
 utilizations <- list()
 dow_unit_outputs <- list()
 dow_sg_outputs   <- list()
+los_validation <- list()
+
+
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 results <- ip_utilization_model()
 

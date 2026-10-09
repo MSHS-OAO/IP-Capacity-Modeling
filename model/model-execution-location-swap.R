@@ -40,7 +40,11 @@ baseline <- tbl(con_prod, "IPCAP_BEDCHARGES") %>% collect() %>%
       FACILITY_MSX == "BIP" ~ "MSBI",
       FACILITY_MSX == "RVT" ~ "MSW",
       FACILITY_MSX == "STL" ~ "MSM",
-      TRUE ~ FACILITY_MSX))
+      TRUE ~ FACILITY_MSX)) %>%
+  filter(
+  SERVICE_DATE >= as.Date("2025-01-01"),
+  SERVICE_DATE <= as.Date("2025-12-31"),
+  FACILITY_MSX != "MSSN")
 
 #pool NA SERVICE_GROUP vals as "Other"
 baseline <- baseline %>%
@@ -85,18 +89,22 @@ source("model/model-ip-utilization.R")
 
 # ---------------------------------------------------------- Scenario Parameters ----------------------------------------------------------
 
-# set hospitals in scenario
+
+#Vascular Surgery is routed from MSH to MSM, while Cardiovascular Surgery is routed from MSM to MSH. 
+#Scenario 1 moves 90% and 40%, respectively; Scenario 2 moves 40% and 90%, respectively.
+
+
+
+
+# set hospitals in scenario -> (Hosp1, Hosp2)
 hospitals <- list("MSH", "MSM")
 
-services <- list("CARDIOVASCULAR SURGERY", 
-                 "VASCULAR SURGERY")
+# service groups -> (moved to Hosp1, moved to Hosp2)
+services <- list("CARDIOVASCULAR SURGERY", "VASCULAR SURGERY")
 
 # how the rerouted service group should be distributed at destination hospital
-reroute_service_group_percent <- list(
- c("Med Surg" = 0.80,
-   "Critical Care" = 0.20),
- c("Heart" = 0.65,
-   "Critical Care" = 0.35))
+reroute_service_group_percent <- list(c("Med Surg" = 0.80,"Critical Care" = 0.20), # Hosp1 -> Hosp2
+                                      c("Heart" = 0.65,"Critical Care" = 0.35))  # Hosp2 -> Hosp1
 
 
 # file with unit capacity adjustments
@@ -113,9 +121,11 @@ exclusion_hosp1 <- TRUE
 exclusion_hosp2 <- TRUE
 
 # percentage of service line moving from hospital n
-percentage_to_hosp1_list <- c(0.4, 0.9)
-percentage_to_hosp2_list <- c(0.9,0.4)
-
+# percentage_to_hosp1_list <- c(0.4, 0.9)
+# percentage_to_hosp2_list <- c(0.9,0.4)
+percentage_to_hosp1_list <- c(1)
+percentage_to_hosp2_list <- c(0)
+                              
 # calculate # of weekdays and # of all days in dataset
 all_dates <- seq(min(baseline$SERVICE_DATE),max(baseline$SERVICE_DATE), by = "day")
 num_days <- length(all_dates)
@@ -133,6 +143,7 @@ dow_counts <- table(
 utilizations <- list()
 dow_unit_outputs <- list()
 dow_sg_outputs   <- list()
+los_validation <- list()
 
 # -------------------------------------------------------- Execute model --------------------------------------------------------
 for (i in 1:length(percentage_to_hosp1_list)) {
